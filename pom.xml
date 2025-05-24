@@ -9,10 +9,10 @@
         <relativePath/>
     </parent>
     <groupId>com.innov4africa</groupId>
-    <artifactId>api-gateway</artifactId>
+    <artifactId>service-aggregation</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>api-gateway</name>
-    <description>API Gateway for integrating multiple backend services</description>
+    <name>service-aggregation</name>
+    <description>Service Aggregation Layer for Backend Services</description>
     <properties>
         <java.version>21</java.version>
         <spring-cloud.version>2022.0.4</spring-cloud.version>

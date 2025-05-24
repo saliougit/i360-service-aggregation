@@ -1,64 +1,20 @@
 server:
-  port: 8080
+  port: 8090 # Port for the aggregation service
 
 spring:
   main:
     allow-bean-definition-overriding: true
     web-application-type: reactive
   application:
-    name: api-gateway
-  cloud:
-    gateway:
-      routes:
-        - id: ipay-service
-          uri: http://localhost:8081
-          predicates:
-            - Path=/ipay/**
-        - id: ibanking-service
-          uri: http://localhost:8082
-          predicates:
-            - Path=/ibanking/**
-
+    name: service-aggregation
+  security:
+    jwt:
+      secret: ${JWT_SECRET:58703273357638792F423F4528482B4D6251655468576D5A7134743677397A24}
+      expiration: ${JWT_EXPIRATION:86400000}
   data:
     redis:
-      host: localhost
-      port: 6379
-
-jwt:
-  secret: yourSecretKeyHereMustBeVeryLongAndSecure
-  expiration: 86400000  # 24 hours in milliseconds
-
-logging:
-  level:
-    org.springframework.cloud.gateway: DEBUG
-    org.springframework.security: DEBUG
-
-# Configuration pour SpringDoc OpenAPI
-springdoc:
-  swagger-ui:
-    path: /swagger-ui.html
-    use-root-path: true
-    enabled: true
-    config-url: /v3/api-docs/swagger-config
-    tags-sorter: alpha
-    operations-sorter: method
-    doc-expansion: none
-    default-models-expand-depth: -1
-    urls:
-      - url: /v3/api-docs
-        name: API Gateway
-  api-docs:
-    path: /api-docs
-    enabled: true
-  show-actuator: true
-  packages-to-scan: com.innov4africa.api_gateway.controller
-  paths-to-match: 
-    - /ishop/**
-    - /ipay/**
-    - /ibanking/**
-    - /auth/**
-    - /wave/**
-    - /orange-money/**
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
 
 # Configuration URLs for OpenAPI
 openapi:
@@ -66,16 +22,78 @@ openapi:
   prod-url: https://api.innov4africa.sn
 
 keycloak:
-  auth-server-url: ${KEYCLOAK_SERVER_URL:https://137.184.94.79:8443/auth}
-  realm: ${KEYCLOAK_REALM:Ibanking}
-  resource: ${KEYCLOAK_CLIENT_ID:ibanking-backoffice}
+  auth-server-url: ${KEYCLOAK_SERVER_URL}
+  realm: ${KEYCLOAK_REALM}
+  resource: ${KEYCLOAK_CLIENT_ID}
   public-client: true
   use-resource-role-mappings: true
   bearer-only: true
   ssl-required: external
   admin:
-    username: ${KEYCLOAK_ADMIN_USERNAME:admin}
-    password: ${KEYCLOAK_ADMIN_PASSWORD:admin}
+    username: ${KEYCLOAK_ADMIN_USERNAME}
+    password: ${KEYCLOAK_ADMIN_PASSWORD}
 
-ishop:
-  base-url: https://ibusinesscompanies.com:8443
+# Configuration des services externes
+services:
+  ipay:
+    url: ${IPAY_SERVICE_URL}
+    soap-endpoint: /cash-ws/CashWalletServiceWS # Endpoint SOAP réel
+    connection-timeout: 30000  # Timeout augmenté car service SOAP
+    read-timeout: 30000
+    ssl:
+      verify: false  # Nécessaire car utilise InsecureTrustManagerFactory
+
+  ibanking:
+    url: https://137.184.94.79:8443  # URL de Keycloak/iBanking
+    api-version: v1
+    connection-timeout: 5000
+    read-timeout: 5000
+    auth:
+      server-url: ${KEYCLOAK_SERVER_URL:https://137.184.94.79:8443/auth}
+      realm: ${KEYCLOAK_REALM:Ibanking}
+      client-id: ${KEYCLOAK_CLIENT_ID:ibanking-backoffice}
+
+  ishop:
+    url: https://ibusinesscompanies.com:8443  # URL réelle trouvée dans IShopService
+    api-version: v1
+    connection-timeout: 5000
+    read-timeout: 5000
+    endpoints:
+      product: /mobile-ws/product
+      auth: /mobile-ws/auth
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      ipayService:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30000
+      ibankingService:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30000
+      ishopService:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30000
+
+  retry:
+    instances:
+      ipayService:
+        maxAttempts: 3
+        waitDuration: 1000
+      ibankingService:
+        maxAttempts: 3
+        waitDuration: 1000
+      ishopService:
+        maxAttempts: 3
+        waitDuration: 1000
+
+logging:
+  level:
+    com.innov4africa: DEBUG
+    org.springframework.web.reactive: DEBUG
+    reactor.netty: DEBUG
+    org.springframework.cloud.gateway: DEBUG
+    org.springframework.security: DEBUG

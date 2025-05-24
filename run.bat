@@ -1,7 +1,12 @@
 @echo off
 setlocal EnableDelayedExpansion
 
-echo Verification des services requis...
+echo Chargement des variables d'environnement depuis .env...
+for /f "tokens=1,* delims==" %%a in (.env) do (
+    set "%%a=%%b"
+)
+
+echo Configuration chargee avec succes
 echo.
 
 @REM REM Vérifier si le conteneur Redis existe et est en cours d'exécution
@@ -19,6 +24,9 @@ echo.
 @REM         exit /b 1
 @REM     )
 @REM ) else if !errorlevel! == 2 (
+
+echo Demarrage de l'application...
+mvn spring-boot:run
 @REM     echo Creation d'un nouveau conteneur Redis...
 @REM     powershell -Command "docker run --name redis -d -p 6379:6379 redis:latest"
 @REM     if !errorlevel! == 0 (
