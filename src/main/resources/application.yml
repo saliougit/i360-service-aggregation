@@ -1,6 +1,9 @@
 server:
   port: 8090 # Port for the aggregation service
 
+gateway:
+  url: ${GATEWAY_URL:http://localhost:8080}
+
 spring:
   main:
     allow-bean-definition-overriding: true
