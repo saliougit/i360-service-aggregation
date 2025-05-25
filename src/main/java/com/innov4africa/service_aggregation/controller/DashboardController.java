@@ -1,7 +1,7 @@
 package com.innov4africa.service_aggregation.controller;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -37,7 +37,8 @@ public class DashboardController {
     
     @Autowired
     private AggregationService aggregationService;
-      @Autowired
+    
+    @Autowired
     private JwtUtil jwtUtil;
 
     @Operation(
@@ -53,34 +54,23 @@ public class DashboardController {
     @GetMapping("/balance/history")
     public Mono<ResponseEntity<BalanceHistoryResponse>> getBalanceHistory(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
-            @RequestParam(required = false) @Parameter(description = "Date de début (format: yyyy-MM-dd)") String startDate,
-            @RequestParam(required = false) @Parameter(description = "Date de fin (format: yyyy-MM-dd)") String endDate,
-            @RequestParam(required = false) @Parameter(description = "Période (WEEK, MONTH, YEAR)") String period) {
+            @RequestParam @Parameter(description = "Date de début (format: yyyy-MM-dd'T'HH:mm:ss)") String startDate,
+            @RequestParam @Parameter(description = "Date de fin (format: yyyy-MM-dd'T'HH:mm:ss)") String endDate) {
         
         // 1. Vérification de la présence du header Authorization
         if (authHeader == null || authHeader.isBlank()) {
             logger.warn("Tentative d'accès sans header Authorization");
-            return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-                new BalanceHistoryResponse(
-                    "error", 
-                    "Token d'authentification manquant",
-                    null,
-                    List.of(new ServiceStatus("auth", false, "Non autorisé"))
-                )
-            ));
+            return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new BalanceHistoryResponse("error", "Token d'authentification manquant", null,
+                    List.of(new ServiceStatus("auth", false, "Non autorisé")))));
         }
         
         // 2. Vérification du format Bearer
         if (!authHeader.startsWith("Bearer ")) {
             logger.warn("Format de token invalide: {}", authHeader);
-            return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-                new BalanceHistoryResponse(
-                    "error", 
-                    "Format de token invalide",
-                    null,
-                    List.of(new ServiceStatus("auth", false, "Format de token invalide"))
-                )
-            ));
+            return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new BalanceHistoryResponse("error", "Format de token invalide", null,
+                    List.of(new ServiceStatus("auth", false, "Format de token invalide")))));
         }
         
         String jwt = authHeader.substring(7);
@@ -88,57 +78,42 @@ public class DashboardController {
         // 3. Validation du token JWT
         if (!jwtUtil.validateToken(jwt)) {
             logger.warn("Token JWT invalide ou expiré");
-            return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-                new BalanceHistoryResponse(
-                    "error", 
-                    "Token invalide ou expiré",
-                    null,
-                    List.of(new ServiceStatus("auth", false, "Non autorisé"))
-                )
-            ));
+            return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new BalanceHistoryResponse("error", "Token invalide ou expiré", null,
+                    List.of(new ServiceStatus("auth", false, "Non autorisé")))));
         }
         
-        // 4. Extraction des claims nécessaires
+        // 4. Extraction des claims nécessaires du token
         String telephone = jwtUtil.extractTelephone(jwt);
         String email = jwtUtil.extractUsername(jwt);
         String ipayToken = jwtUtil.extractIpayToken(jwt);
         String accountId = jwtUtil.extractAccountIdIPay(jwt);
         
         if (telephone == null || ipayToken == null || accountId == null) {
-            logger.warn("Token ne contient pas les claims requis - telephone: {}, ipayToken: {}, accountId: {}", telephone, ipayToken, accountId);
-            return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-                new BalanceHistoryResponse(
-                    "error", 
-                    "Token incomplet",
-                    null,
-                    List.of(new ServiceStatus("auth", false, "Token incomplet"))
-                )
-            ));
+            logger.warn("Token ne contient pas les claims requis - telephone: {}, ipayToken: {}, accountId: {}", 
+                telephone, ipayToken, accountId);
+            return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new BalanceHistoryResponse("error", "Token incomplet", null,
+                    List.of(new ServiceStatus("auth", false, "Token incomplet")))));
         }
         
-        // 5. Calcul de la période
+        // 5. Vérification et parsing des dates
         LocalDateTime start, end;
-        if (startDate != null && endDate != null) {
-            start = LocalDate.parse(startDate).atStartOfDay();
-            end = LocalDate.parse(endDate).atStartOfDay();
-        } else {
-            end = LocalDateTime.now();
-            start = switch (period != null ? period.toUpperCase() : "MONTH") {
-                case "WEEK" -> end.minusWeeks(1);
-                case "YEAR" -> end.minusYears(1);
-                default -> end.minusMonths(1); // MONTH par défaut
-            };
+        try {
+            DateTimeFormatter formatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+            start = LocalDateTime.parse(startDate, formatter);
+            end = LocalDateTime.parse(endDate, formatter);
+        } catch (Exception e) {
+            logger.warn("Format de date invalide - startDate: {}, endDate: {}", startDate, endDate);
+            return Mono.just(ResponseEntity.badRequest()
+                .body(new BalanceHistoryResponse("error", "Format de date invalide", null,
+                    List.of(new ServiceStatus("validation", false, "Format de date invalide")))));
         }
         
         if (start.isAfter(end)) {
-            return Mono.just(ResponseEntity.badRequest().body(
-                new BalanceHistoryResponse(
-                    "error", 
-                    "La date de début doit être antérieure à la date de fin",
-                    null,
-                    List.of(new ServiceStatus("validation", false, "Période invalide"))
-                )
-            ));
+            return Mono.just(ResponseEntity.badRequest()
+                .body(new BalanceHistoryResponse("error", "La date de début doit être antérieure à la date de fin", null,
+                    List.of(new ServiceStatus("validation", false, "Période invalide")))));
         }
         
         logger.info("Demande d'historique des soldes pour telephone: {}, période: {} à {}", telephone, start, end);
@@ -148,14 +123,9 @@ public class DashboardController {
             .map(ResponseEntity::ok)
             .onErrorResume(e -> {
                 logger.error("Erreur lors de la récupération de l'historique des soldes", e);
-                return Mono.just(ResponseEntity.internalServerError().body(
-                    new BalanceHistoryResponse(
-                        "error",
-                        "Erreur technique",
-                        null,
-                        List.of(new ServiceStatus("service", false, "Service temporairement indisponible"))
-                    )
-                ));
+                return Mono.just(ResponseEntity.internalServerError()
+                    .body(new BalanceHistoryResponse("error", "Erreur technique", null,
+                        List.of(new ServiceStatus("service", false, "Service temporairement indisponible")))));
             });
     }
 
@@ -227,123 +197,4 @@ public class DashboardController {
                 ));
             });
     }
-
-    // @Operation(
-    //     summary = "Obtenir l'historique des soldes",
-    //     description = "Récupère l'historique consolidé des soldes iPay et iBanking sur une période donnée"
-    // )
-    // @ApiResponses({
-    //     @ApiResponse(responseCode = "200", description = "Historique récupéré avec succès"),
-    //     @ApiResponse(responseCode = "400", description = "Paramètres invalides"),
-    //     @ApiResponse(responseCode = "401", description = "Non autorisé ou token invalide"),
-    //     @ApiResponse(responseCode = "500", description = "Erreur serveur lors de la récupération des historiques")
-    // })
-    // @GetMapping("/balance/history")
-    // public Mono<ResponseEntity<BalanceHistoryResponse>> getBalanceHistory(
-    //         @RequestHeader(value = "Authorization", required = false) String authHeader,
-    //         @RequestParam(required = false) @Parameter(description = "Date de début (format: yyyy-MM-dd)") String startDate,
-    //         @RequestParam(required = false) @Parameter(description = "Date de fin (format: yyyy-MM-dd)") String endDate,
-    //         @RequestParam(required = false) @Parameter(description = "Période (WEEK, MONTH, YEAR)") String period) {
-        
-    //     // 1. Vérification de la présence du header Authorization
-    //     if (authHeader == null || authHeader.isBlank()) {
-    //         logger.warn("Tentative d'accès sans header Authorization");
-    //         return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-    //             new BalanceHistoryResponse(
-    //                 "error", 
-    //                 "Token d'authentification manquant",
-    //                 List.of(),
-    //                 List.of(new ServiceStatus("auth", false, "Non autorisé"))
-    //             )
-    //         ));
-    //     }
-        
-    //     // 2. Vérification du format Bearer
-    //     if (!authHeader.startsWith("Bearer ")) {
-    //         logger.warn("Format de token invalide: {}", authHeader);
-    //         return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-    //             new BalanceHistoryResponse(
-    //                 "error", 
-    //                 "Format de token invalide",
-    //                 List.of(),
-    //                 List.of(new ServiceStatus("auth", false, "Format de token invalide"))
-    //             )
-    //         ));
-    //     }
-        
-    //     String jwt = authHeader.substring(7);
-        
-    //     // 3. Validation du token JWT
-    //     if (!jwtUtil.validateToken(jwt)) {
-    //         logger.warn("Token JWT invalide ou expiré");
-    //         return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-    //             new BalanceHistoryResponse(
-    //                 "error", 
-    //                 "Token invalide ou expiré",
-    //                 List.of(),
-    //                 List.of(new ServiceStatus("auth", false, "Non autorisé"))
-    //             )
-    //         ));
-    //     }
-        
-    //     // 4. Extraction des claims nécessaires
-    //     String telephone = jwtUtil.extractTelephone(jwt);
-    //     String email = jwtUtil.extractEmail(jwt);
-    //     String ipayToken = jwtUtil.extractIpayToken(jwt);
-    //     String accountId = jwtUtil.extractAccountIdIPay(jwt);
-        
-    //     if (telephone == null || ipayToken == null || accountId == null) {
-    //         logger.warn("Token ne contient pas les claims requis - telephone: {}, ipayToken: {}, accountId: {}", telephone, ipayToken, accountId);
-    //         return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-    //             new BalanceHistoryResponse(
-    //                 "error", 
-    //                 "Token incomplet",
-    //                 List.of(),
-    //                 List.of(new ServiceStatus("auth", false, "Token incomplet"))
-    //             )
-    //         ));
-    //     }
-        
-    //     // 5. Calcul de la période
-    //     LocalDateTime start, end;
-    //     if (startDate != null && endDate != null) {
-    //         start = LocalDate.parse(startDate).atStartOfDay();
-    //         end = LocalDate.parse(endDate).atStartOfDay();
-    //     } else {
-    //         end = LocalDateTime.now();
-    //         start = switch (period != null ? period.toUpperCase() : "MONTH") {
-    //             case "WEEK" -> end.minusWeeks(1);
-    //             case "YEAR" -> end.minusYears(1);
-    //             default -> end.minusMonths(1); // MONTH par défaut
-    //         };
-    //     }
-        
-    //     if (start.isAfter(end)) {
-    //         return Mono.just(ResponseEntity.badRequest().body(
-    //             new BalanceHistoryResponse(
-    //                 "error", 
-    //                 "La date de début doit être antérieure à la date de fin",
-    //                 List.of(),
-    //                 List.of(new ServiceStatus("validation", false, "Période invalide"))
-    //             )
-    //         ));
-    //     }
-        
-    //     logger.info("Demande d'historique des soldes pour telephone: {}, période: {} à {}", telephone, start, end);
-        
-    //     // 6. Appel du service d'agrégation
-    //     return aggregationService.getBalanceHistory(telephone, email, ipayToken, accountId, start, end)
-    //         .map(ResponseEntity::ok)
-    //         .onErrorResume(e -> {
-    //             logger.error("Erreur lors de la récupération de l'historique des soldes", e);
-    //             return Mono.just(ResponseEntity.internalServerError().body(
-    //                 new BalanceHistoryResponse(
-    //                     "error",
-    //                     "Erreur technique",
-    //                     List.of(),
-    //                     List.of(new ServiceStatus("service", false, "Service temporairement indisponible"))
-    //                 )
-    //             ));
-    //         });
-    // }
 }
