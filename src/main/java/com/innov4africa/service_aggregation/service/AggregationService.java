@@ -1,8 +1,11 @@
 package com.innov4africa.service_aggregation.service;
 
 import java.io.StringReader;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -17,6 +20,8 @@ import org.w3c.dom.Document;
 import org.xml.sax.InputSource;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.innov4africa.service_aggregation.model.BalanceHistoryPoint;
+import com.innov4africa.service_aggregation.model.BalanceHistoryResponse;
 import com.innov4africa.service_aggregation.model.GlobalBalanceResponse;
 import com.innov4africa.service_aggregation.model.IBankingBalanceResponse;
 import com.innov4africa.service_aggregation.model.ServiceStatus;
@@ -151,6 +156,89 @@ public class AggregationService {
                 "0.00",
                 List.of(new ServiceStatus("i-pay", false, "Service indisponible"),
                        new ServiceStatus("i-banking", false, "Service en cours d'implémentation"))
+            ));
+        });
+    }
+
+    /**
+     * Récupère l'historique consolidé des soldes iPay et iBanking
+     */
+    public Mono<BalanceHistoryResponse> getBalanceHistory(String telephone, String email, String ipayToken, String accountId, LocalDateTime startDate, LocalDateTime endDate) {
+        String cacheKey = CACHE_KEY_PREFIX + "history:" + telephone + ":" + email + ":" + startDate + ":" + endDate;
+        
+        // Vérification du cache Redis
+        try {
+            String cachedValue = redisTemplate.opsForValue().get(cacheKey);
+            if (cachedValue != null) {
+                logger.info("Utilisation du cache Redis pour l'historique - telephone: {}", telephone);
+                ObjectMapper mapper = new ObjectMapper();
+                return Mono.just(mapper.readValue(cachedValue, BalanceHistoryResponse.class));
+            }
+        } catch (Exception e) {
+            logger.warn("Redis indisponible: {}", e.getMessage());
+        }
+        
+        // Récupération parallèle des historiques
+        return Mono.zip(
+            ipayService.getBalanceHistory(ipayToken, accountId, startDate, endDate),
+            iBankingService.getBalanceHistory(email, startDate, endDate)
+        ).map(tuple -> {
+            List<BalanceHistoryPoint> ipayHistory = tuple.getT1();
+            List<BalanceHistoryPoint> iBankingHistory = tuple.getT2();
+            
+            // Fusion et agrégation des historiques
+            Map<LocalDateTime, BalanceHistoryPoint> mergedHistory = new TreeMap<>();
+            
+            // Traitement de l'historique iPay
+            for (BalanceHistoryPoint point : ipayHistory) {
+                mergedHistory.put(point.getDate(), point);
+            }
+            
+            // Fusion avec l'historique iBanking
+            for (BalanceHistoryPoint point : iBankingHistory) {
+                LocalDateTime date = point.getDate();
+                BalanceHistoryPoint existingPoint = mergedHistory.get(date);
+                  if (existingPoint != null) {
+                    // Mettre à jour le point existant avec les données iBanking
+                    existingPoint.setiBankingBalance(point.getiBankingBalance());
+                    existingPoint.setGlobalBalance(existingPoint.getiPayBalance() + point.getiBankingBalance());
+                } else {
+                    // Créer un nouveau point
+                    mergedHistory.put(date, point);
+                }
+            }
+            
+            BalanceHistoryResponse response = new BalanceHistoryResponse(
+                "success",
+                "Historique consolidé récupéré avec succès",
+                new ArrayList<>(mergedHistory.values()),
+                List.of(
+                    new ServiceStatus("i-pay", true, "Historique récupéré"),
+                    new ServiceStatus("i-banking", true, "Historique récupéré")
+                )
+            );
+            
+            // Mise en cache Redis
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                String jsonValue = mapper.writeValueAsString(response);
+                redisTemplate.opsForValue().set(cacheKey, jsonValue, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                logger.warn("Impossible de mettre en cache Redis: {}", e.getMessage());
+            }
+            
+            return response;
+        })
+        .onErrorResume(e -> {
+            logger.error("Erreur lors de la récupération de l'historique", e);
+            return Mono.just(new BalanceHistoryResponse(
+                "error",
+                "Erreur lors de la récupération de l'historique",
+                List.of(),
+                List.of(
+                    new ServiceStatus("i-pay", false, "Service indisponible"),
+                    new ServiceStatus("i-banking", false, "Service indisponible")
+                )
             ));
         });
     }

@@ -13,11 +13,18 @@ import org.springframework.util.MultiValueMap;
 import com.innov4africa.service_aggregation.model.IBankingTokenResponse;
 import com.innov4africa.service_aggregation.model.IBankingBalanceResponse;
 import com.innov4africa.service_aggregation.model.ServiceStatus;
+import com.innov4africa.service_aggregation.model.BalanceHistoryPoint;
 import com.innov4africa.service_aggregation.model.GlobalBalanceResponse;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Collections;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Random;
+import java.time.LocalDateTime;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Random;
 
 @Service
 public class IBankingService {
@@ -194,5 +201,35 @@ public class IBankingService {
             montantFormate,
             List.of(new ServiceStatus("i-banking", true, "Solde récupéré"))
         ));
+    }
+    
+    /**
+     * Génère un historique simulé des soldes pour iBanking
+     * Les valeurs sont déterministes pour un même email
+     */
+    public Mono<List<BalanceHistoryPoint>> getBalanceHistory(String userEmail, LocalDateTime startDate, LocalDateTime endDate) {
+        logger.info("Récupération de l'historique iBanking pour l'utilisateur: {}", userEmail);
+        
+        List<BalanceHistoryPoint> history = new ArrayList<>();
+        int hashCode = Math.abs(userEmail.hashCode());
+        Random random = new Random(hashCode); // Utilise le hashCode comme seed pour la génération pseudo-aléatoire
+        
+        // Génère un point par jour dans l'intervalle
+        LocalDateTime currentDate = startDate;
+        while (!currentDate.isAfter(endDate)) {
+            // Génère un montant entre 500 et 5000 FCFA
+            double baseAmount = 500 + (random.nextDouble() * 4500);
+            
+            history.add(new BalanceHistoryPoint(
+                currentDate,
+                baseAmount,
+                0, // iPayBalance sera ajouté par l'AggregationService
+                baseAmount // iBankingBalance
+            ));
+            
+            currentDate = currentDate.plusDays(1);
+        }
+        
+        return Mono.just(history);
     }
 }

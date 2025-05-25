@@ -2,11 +2,17 @@ package com.innov4africa.service_aggregation.service;
 
 import java.io.StringReader;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 
 import javax.net.ssl.SSLException;
 import javax.xml.namespace.NamespaceContext;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathConstants;
 import javax.xml.xpath.XPathFactory;
 
 import org.slf4j.Logger;
@@ -17,10 +23,12 @@ import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.w3c.dom.Document;
+import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 
 import com.innov4africa.service_aggregation.model.AuthResult;
 import com.innov4africa.service_aggregation.repository.UserSessionRepository;
+import com.innov4africa.service_aggregation.model.BalanceHistoryPoint;
 
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
@@ -1074,5 +1082,59 @@ public Mono<String> getAllNotif(String sessionId, String uoId) {
                 throw new RuntimeException("Erreur technique lors de l'appel au service IPay: " + e.getMessage());
             }
         }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+
+    /**
+     * Récupère et convertit l'historique des soldes iPay pour la période demandée
+     */
+    public Mono<List<BalanceHistoryPoint>> getBalanceHistory(String ipayToken, String accountId, LocalDateTime startDate, LocalDateTime endDate) {
+        logger.info("Récupération de l'historique iPay pour le compte: {}", accountId);
+        
+        return getHistorySolde(ipayToken, accountId)
+            .flatMap(xmlResponse -> {
+                try {
+                    List<BalanceHistoryPoint> history = new ArrayList<>();
+                    Document doc = DocumentBuilderFactory.newInstance()
+                            .newDocumentBuilder()
+                            .parse(new InputSource(new StringReader(xmlResponse)));
+                    
+                    XPath xpath = XPathFactory.newInstance().newXPath();
+                    String error = xpath.evaluate("//return/error", doc);
+                    
+                    if ("0".equals(error)) {
+                        NodeList historiesNodes = (NodeList) xpath.evaluate(
+                            "//return/histories", doc, XPathConstants.NODESET);
+                        
+                        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+                        
+                        for (int i = 0; i < historiesNodes.getLength(); i++) {
+                            org.w3c.dom.Node node = historiesNodes.item(i);
+                            
+                            String dateStr = xpath.evaluate("date", node);
+                            String solde = xpath.evaluate("solde", node);
+                            
+                            // Conversion de la date
+                            LocalDateTime date = LocalDate.parse(dateStr, dateFormatter).atStartOfDay();
+                            
+                            // Ne prend que les points dans l'intervalle demandé
+                            if (!date.isBefore(startDate) && !date.isAfter(endDate)) {
+                                double amount = Double.parseDouble(solde);
+                                history.add(new BalanceHistoryPoint(
+                                    date,
+                                    amount,
+                                    amount, // iPay balance
+                                    0 // iBanking balance sera ajouté par l'AggregationService
+                                ));
+                            }
+                        }
+                    }
+                    
+                    return Mono.just(history);
+                } catch (Exception e) {
+                    logger.error("Erreur lors du traitement de l'historique iPay", e);
+                    return Mono.error(e);
+                }
+            });
     }
 }
