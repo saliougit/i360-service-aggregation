@@ -50,6 +50,8 @@ public class AuthService {
         String email = request.getEmail();
         String password = request.getPassword();
 
+        
+
         // Préparer la requête iShop qui sera utilisée dans les deux cas
         Mono<com.innov4africa.service_aggregation.model.IShopLoginResponse> ishopMono = 
             iShopService.login(new IShopLoginRequest(email, password));
@@ -287,10 +289,14 @@ public class AuthService {
                 globalMessage = "Authentification réussie";
             }
             
+            //debug
+
+            logger.debug("Notification     {}: {}", email, jwtToken);
+            
             // Notify Gateway about the new token
             return tokenNotificationService.notifyNewToken(email, jwtToken)
                 .thenReturn(new AuthResponse(
-                    "success",
+                    "successssss",
                     globalMessage,
                     jwtToken,
                     services,

@@ -14,23 +14,43 @@ import reactor.core.publisher.Mono;
 @Service
 public class TokenNotificationService {
     private final WebClient webClient;
-    private static final Logger logger = LoggerFactory.getLogger(TokenNotificationService.class);    public TokenNotificationService(WebClient.Builder webClientBuilder, @Value("${gateway.url:http://localhost:8080}") String gatewayUrl) {
+    private static final Logger logger = LoggerFactory.getLogger(TokenNotificationService.class);
+
+    public TokenNotificationService(WebClient.Builder webClientBuilder, @Value("${gateway.url}") String gatewayUrl) {
         this.webClient = webClientBuilder
             .baseUrl(gatewayUrl)
             .build();
+        logger.info("TokenNotificationService initialized with Gateway URL: {}", gatewayUrl);
     }
 
+    /**
+     * Notifie le Gateway d'un nouveau token.
+     * @param username L'email de l'utilisateur
+     * @param token Le nouveau token JWT
+     * @return Mono<Void> complété quand la notification est envoyée
+     */
     public Mono<Void> notifyNewToken(String username, String token) {
-        logger.debug("Notification de nouveau token pour l'utilisateur: {}", username);
-        
+        logger.info("Début de notifyNewToken pour l'utilisateur: {}", username);
+        logger.debug("Préparation de la requête de notification avec token: {}", token);
+
         return webClient.post()
-            .uri("/internal/token-refresh")
+            .uri("/internal/token-notification")
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(new TokenRefreshRequest(username, token))
             .retrieve()
             .bodyToMono(Void.class)
-            .doOnSuccess(v -> logger.info("Notification réussie pour l'utilisateur: {}", username))
-            .doOnError(error -> logger.error("Échec de notification Gateway pour {}: {}", username, error.getMessage()))
-            .onErrorResume(e -> Mono.empty()); // Continue même en cas d'erreur
+            .doOnSubscribe(s -> logger.debug("Envoi de la notification au Gateway..."))
+            .doOnSuccess(v -> {
+                logger.info("Notification réussie pour l'utilisateur: {}", username);
+                logger.debug("Token mis à jour avec succès dans le Gateway");
+            })
+            .doOnError(error -> {
+                logger.error("Échec de notification Gateway pour {}: {}", username, error.getMessage());
+                logger.error("Détails de l'erreur:", error);
+            })
+            .onErrorResume(e -> {
+                logger.error("Erreur lors de la notification du Gateway, réessayer plus tard: {}", e.getMessage(), e);
+                return Mono.empty();
+            });
     }
 }
