@@ -110,59 +110,70 @@ public enum Period {
         @Override
         public String formatDate(LocalDateTime date) {
             return date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-        }
-        
-        @Override
+        }        @Override
         public List<LocalDateTime> calculateDateRange(LocalDateTime currentDate) {
             LocalDate today = currentDate.toLocalDate();
             
-            // Trouver dans quelle semaine du mois on se trouve
+            // Utiliser WeekInfo pour avoir la vraie semaine du mois
             WeekInfo currentWeekInfo = findCurrentWeekOfMonth(today);
             
             List<LocalDateTime> dates = new ArrayList<>();
             LocalDate currentDay = currentWeekInfo.startDate;
             
-            // Retourner tous les jours de la semaine jusqu'à aujourd'hui
+            // Retourner tous les jours jusqu'à aujourd'hui
             while (!currentDay.isAfter(today)) {
                 dates.add(currentDay.atStartOfDay());
                 currentDay = currentDay.plusDays(1);
             }
-
-                        
             return dates;
         }
     },
     
-    MONTH {
-        @Override
+    MONTH {        @Override
         public String formatDate(LocalDateTime date) {
             LocalDate dateOnly = date.toLocalDate();
             WeekInfo weekInfo = findCurrentWeekOfMonth(dateOnly);
-            return "Semaine " + weekInfo.weekNumber;
+            return String.format("Semaine %d (%d-%d %s)", 
+                weekInfo.weekNumber,
+                weekInfo.startDate.getDayOfMonth(),
+                weekInfo.endDate.getDayOfMonth(),
+                weekInfo.startDate.format(DateTimeFormatter.ofPattern("MMMM", new java.util.Locale("fr")))
+            );
         }
-        
-        @Override
+          @Override
         public List<LocalDateTime> calculateDateRange(LocalDateTime currentDate) {
             LocalDate today = currentDate.toLocalDate();
             LocalDate firstDayOfMonth = today.withDayOfMonth(1);
+            LocalDate lastDayOfMonth = firstDayOfMonth.with(TemporalAdjusters.lastDayOfMonth());
             
             List<LocalDateTime> weeks = new ArrayList<>();
             
-            // Calculer toutes les semaines du mois jusqu'à aujourd'hui
-            List<WeekInfo> monthWeeks = calculateMonthWeeks(firstDayOfMonth, today);
+            // Calculer toutes les semaines complètes du mois
+            LocalDate currentStart = firstDayOfMonth;
+            int weekNumber = 1;
             
-            for (WeekInfo week : monthWeeks) {
-                weeks.add(week.startDate.atStartOfDay());
+            while (!currentStart.isAfter(today)) {
+                LocalDate weekEnd = currentStart.plusDays(6);
+                if (weekEnd.isAfter(lastDayOfMonth)) {
+                    weekEnd = lastDayOfMonth;
+                }
+                if (weekEnd.isAfter(today)) {
+                    weekEnd = today;
+                }
+                
+                weeks.add(currentStart.atStartOfDay());
+                currentStart = currentStart.plusDays(7);
+                weekNumber++;
             }
             
             return weeks;
         }
     },
     
-    YEAR {
-        @Override
+    YEAR {        @Override
         public String formatDate(LocalDateTime date) {
-            return date.format(DateTimeFormatter.ofPattern("MMMM yyyy", java.util.Locale.FRENCH));
+            String month = date.format(DateTimeFormatter.ofPattern("MMMM yyyy", new java.util.Locale("fr")));
+            return month.substring(0, 1).toUpperCase() + month.substring(1);
         }
         
         @Override

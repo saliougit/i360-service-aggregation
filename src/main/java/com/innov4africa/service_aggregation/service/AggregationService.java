@@ -537,39 +537,40 @@ public class AggregationService {
 
     /**
      * Agrégation par semaine : SOMME de tous les jours de la semaine COURANTE du mois
-     */
-    private List<BalanceHistoryPoint> aggregateByWeek(Map<LocalDateTime, BalanceHistoryPoint> dailyData, 
+     */    private List<BalanceHistoryPoint> aggregateByWeek(Map<LocalDateTime, BalanceHistoryPoint> dailyData, 
                                                      LocalDateTime referenceDate) {
         List<BalanceHistoryPoint> weeklyData = new ArrayList<>();
         
-        // Obtenir les dates de la semaine courante du mois (ex: jeudi 22 → lundi 26)
+        // Obtenir les dates de la semaine courante du mois
         List<LocalDateTime> weekDates = Period.WEEK.calculateDateRange(referenceDate);
         
         if (!weekDates.isEmpty()) {
-            LocalDateTime weekStart = weekDates.get(0);
+            // Trier les dates pour assurer l'ordre chronologique
+            weekDates.sort(LocalDateTime::compareTo);
             
-            // Calculer les SOMMES pour tous les jours de cette semaine
-            double totalGlobal = 0.0;
-            double totalIPay = 0.0;
-            double totalIBanking = 0.0;
+            // Pour chaque jour de la semaine, calculer le cumul progressif
+            double runningGlobalTotal = 0.0;
+            double runningIPayTotal = 0.0;
+            double runningIBankingTotal = 0.0;
             
             for (LocalDateTime date : weekDates) {
                 BalanceHistoryPoint point = dailyData.get(date);
                 if (point != null) {
-                    totalGlobal += point.getGlobalBalance();
-                    totalIPay += point.getiPayBalance();
-                    totalIBanking += point.getiBankingBalance();
+                    // Ajouter les montants du jour au cumul
+                    runningGlobalTotal += point.getGlobalBalance();
+                    runningIPayTotal += point.getiPayBalance();
+                    runningIBankingTotal += point.getiBankingBalance();
+                    
+                    // Créer un point avec les cumuls jusqu'à ce jour
+                    weeklyData.add(new BalanceHistoryPoint(
+                        date,
+                        runningGlobalTotal,
+                        runningIPayTotal,
+                        runningIBankingTotal,
+                        Period.WEEK
+                    ));
                 }
             }
-            
-            // Créer le point agrégé pour la semaine courante
-            weeklyData.add(new BalanceHistoryPoint(
-                weekStart,
-                totalGlobal,
-                totalIPay,
-                totalIBanking,
-                Period.WEEK
-            ));
         }
         
         return weeklyData;
@@ -577,16 +578,20 @@ public class AggregationService {
 
     /**
      * Agrégation par mois : SOMME des semaines du mois (semaines définies à partir du 1er)
-     */
-    private List<BalanceHistoryPoint> aggregateByMonth(Map<LocalDateTime, BalanceHistoryPoint> dailyData, 
+     */    private List<BalanceHistoryPoint> aggregateByMonth(Map<LocalDateTime, BalanceHistoryPoint> dailyData, 
                                                       LocalDateTime referenceDate) {
         List<BalanceHistoryPoint> monthlyData = new ArrayList<>();
         
-        // Obtenir toutes les semaines du mois (calculées à partir du 1er du mois)
+        // Obtenir toutes les semaines du mois
         List<LocalDateTime> monthWeeks = Period.MONTH.calculateDateRange(referenceDate);
+        monthWeeks.sort(LocalDateTime::compareTo);
+        
+        // Cumuls progressifs pour le mois
+        double runningGlobalTotal = 0.0;
+        double runningIPayTotal = 0.0;
+        double runningIBankingTotal = 0.0;
         
         for (LocalDateTime weekStart : monthWeeks) {
-            // Pour chaque semaine, calculer les jours qui la composent
             LocalDate weekStartDate = weekStart.toLocalDate();
             LocalDate weekEndDate = weekStartDate.plusDays(6);
             
@@ -602,29 +607,34 @@ public class AggregationService {
                 weekEndDate = today;
             }
             
-            double totalGlobal = 0.0;
-            double totalIPay = 0.0;
-            double totalIBanking = 0.0;
+            double weekTotalGlobal = 0.0;
+            double weekTotalIPay = 0.0;
+            double weekTotalIBanking = 0.0;
             
             // Somme des jours de cette semaine
             LocalDate currentDay = weekStartDate;
             while (!currentDay.isAfter(weekEndDate)) {
                 BalanceHistoryPoint point = dailyData.get(currentDay.atStartOfDay());
                 if (point != null) {
-                    totalGlobal += point.getGlobalBalance();
-                    totalIPay += point.getiPayBalance();
-                    totalIBanking += point.getiBankingBalance();
+                    weekTotalGlobal += point.getGlobalBalance();
+                    weekTotalIPay += point.getiPayBalance();
+                    weekTotalIBanking += point.getiBankingBalance();
                 }
                 currentDay = currentDay.plusDays(1);
             }
             
-            // Ajouter le point de la semaine si il y a des données
-            if (totalGlobal > 0 || totalIPay > 0 || totalIBanking > 0) {
+            // Ajouter les montants de la semaine au cumul progressif
+            runningGlobalTotal += weekTotalGlobal;
+            runningIPayTotal += weekTotalIPay;
+            runningIBankingTotal += weekTotalIBanking;
+            
+            // Ajouter le point de la semaine avec les cumuls
+            if (runningGlobalTotal > 0 || runningIPayTotal > 0 || runningIBankingTotal > 0) {
                 monthlyData.add(new BalanceHistoryPoint(
                     weekStart,
-                    totalGlobal,
-                    totalIPay,
-                    totalIBanking,
+                    runningGlobalTotal,
+                    runningIPayTotal,
+                    runningIBankingTotal,
                     Period.MONTH
                 ));
             }
@@ -635,43 +645,51 @@ public class AggregationService {
 
     /**
      * Agrégation par année : SOMME des mois de l'année
-     */
-    private List<BalanceHistoryPoint> aggregateByYear(Map<LocalDateTime, BalanceHistoryPoint> dailyData, 
+     */    private List<BalanceHistoryPoint> aggregateByYear(Map<LocalDateTime, BalanceHistoryPoint> dailyData, 
                                                      LocalDateTime referenceDate) {
         List<BalanceHistoryPoint> yearlyData = new ArrayList<>();
         
         LocalDate today = referenceDate.toLocalDate();
         LocalDate firstDayOfYear = today.withDayOfYear(1);
         
-        // Parcourir chaque mois de l'année
-        LocalDate currentMonth = firstDayOfYear;
+        // Cumuls progressifs pour l'année
+        double runningGlobalTotal = 0.0;
+        double runningIPayTotal = 0.0;
+        double runningIBankingTotal = 0.0;
         
+        // Parcourir chaque mois de l'année jusqu'au mois actuel
+        LocalDate currentMonth = firstDayOfYear;
         while (!currentMonth.isAfter(today)) {
             LocalDate lastDayOfMonth = currentMonth.with(TemporalAdjusters.lastDayOfMonth());
             
-            double totalGlobal = 0.0;
-            double totalIPay = 0.0;
-            double totalIBanking = 0.0;
+            double monthTotalGlobal = 0.0;
+            double monthTotalIPay = 0.0;
+            double monthTotalIBanking = 0.0;
             
             // Somme de tous les jours du mois
             LocalDate currentDay = currentMonth;
             while (!currentDay.isAfter(lastDayOfMonth) && !currentDay.isAfter(today)) {
                 BalanceHistoryPoint point = dailyData.get(currentDay.atStartOfDay());
                 if (point != null) {
-                    totalGlobal += point.getGlobalBalance();
-                    totalIPay += point.getiPayBalance();
-                    totalIBanking += point.getiBankingBalance();
+                    monthTotalGlobal += point.getGlobalBalance();
+                    monthTotalIPay += point.getiPayBalance();
+                    monthTotalIBanking += point.getiBankingBalance();
                 }
                 currentDay = currentDay.plusDays(1);
             }
             
-            // Ajouter le point du mois si il y a des données
-            if (totalGlobal > 0 || totalIPay > 0 || totalIBanking > 0) {
+            // Ajouter les montants du mois au cumul progressif
+            runningGlobalTotal += monthTotalGlobal;
+            runningIPayTotal += monthTotalIPay;
+            runningIBankingTotal += monthTotalIBanking;
+            
+            // Ajouter le point du mois avec les cumuls
+            if (runningGlobalTotal > 0 || runningIPayTotal > 0 || runningIBankingTotal > 0) {
                 yearlyData.add(new BalanceHistoryPoint(
                     currentMonth.atStartOfDay(),
-                    totalGlobal,
-                    totalIPay,
-                    totalIBanking,
+                    runningGlobalTotal,
+                    runningIPayTotal,
+                    runningIBankingTotal,
                     Period.YEAR
                 ));
             }
