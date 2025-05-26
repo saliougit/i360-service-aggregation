@@ -1,9 +1,18 @@
 package com.innov4africa.service_aggregation.utils;
 
+public class DateUtils {
+    
+}
+package com.innov4africa.service_aggregation.utils;
+
 import java.time.LocalDateTime;
 import java.time.DayOfWeek;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
+import java.time.temporal.ChronoUnit;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+
 import com.innov4africa.service_aggregation.model.Period;
 
 public class DateUtils {
@@ -49,11 +58,49 @@ public class DateUtils {
     }
     
     public static boolean isInPeriod(LocalDateTime date, LocalDateTime referenceDate, Period period) {
-        LocalDateTime[] range = getDateRange(referenceDate, period);
-        return !date.isBefore(range[0]) && !date.isAfter(range[1]);
+        if (date == null || referenceDate == null || period == null) {
+            return false;
+        }
+
+        LocalDateTime startDate = getStartDate(referenceDate, period);
+        LocalDateTime endDate = referenceDate;
+
+        return !date.isBefore(startDate) && !date.isAfter(endDate);
+    }
+
+    public static LocalDateTime getStartDate(LocalDateTime date, Period period) {
+        return switch (period.getType()) {
+            case WEEK -> {
+                // Trouve le début de la semaine courante
+                int currentDayOfMonth = date.getDayOfMonth();
+                int weekNumber = (currentDayOfMonth - 1) / 7 + 1;
+                int startDay = (weekNumber - 1) * 7 + 1;
+                yield date.withDayOfMonth(startDay);
+            }
+            case MONTH -> date.withDayOfMonth(1);
+            case YEAR -> date.withDayOfMonth(1).withMonth(1);
+        };
+    }
+
+    public static LocalDateTime getEndDate(LocalDateTime date, Period period) {
+        return switch (period.getType()) {
+            case WEEK -> date;
+            case MONTH -> date.withDayOfMonth(date.toLocalDate().lengthOfMonth());
+            case YEAR -> date.withMonth(12).withDayOfMonth(31);
+        };
+    }
+
+    public static int getWeekOfMonth(LocalDateTime date) {
+        return ((date.getDayOfMonth() - 1) / 7) + 1;
+    }
+
+    public static int getMaxWeeksInMonth(LocalDateTime date) {
+        return (date.toLocalDate().lengthOfMonth() - 1) / 7 + 1;
     }
     
     public static double roundToTwoDecimals(double value) {
-        return Math.round(value * 100.0) / 100.0;
+        BigDecimal bd = BigDecimal.valueOf(value);
+        bd = bd.setScale(2, RoundingMode.HALF_UP);
+        return bd.doubleValue();
     }
 }
