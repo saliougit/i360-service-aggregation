@@ -111,27 +111,19 @@ public class DashboardController {
         }
         
         // 6. Calcul ou vérification des dates
-        LocalDateTime start, end;
-        try {
+        LocalDateTime start, end;        try {
             DateTimeFormatter formatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
-            if (startDate == null || endDate == null) {
-                // Calcul des dates selon la période si non fournies
-                end = LocalDateTime.now();
-                start = switch (period) {
-                    case WEEK -> end.minusWeeks(1);
-                    case MONTH -> end.minusMonths(1);
-                    case YEAR -> end.minusYears(1);
-                };
+            // On utilise toujours la date actuelle comme point de référence
+            end = LocalDateTime.now();
+            
+            // Les dates de début et de fin fournies sont ignorées car nous calculons 
+            // toujours à partir de la date actuelle selon la période
+            List<LocalDateTime> dateRange = period.calculateDateRange(end);
+            if (!dateRange.isEmpty()) {
+                start = dateRange.get(0);
             } else {
-                // Utilisation des dates fournies
-                start = LocalDateTime.parse(startDate, formatter);
-                end = LocalDateTime.parse(endDate, formatter);
-                
-                if (start.isAfter(end)) {
-                    return Mono.just(ResponseEntity.badRequest()
-                        .body(new BalanceHistoryResponse("error", "La date de début doit être antérieure à la date de fin", null,
-                            List.of(new ServiceStatus("validation", false, "Période invalide")))));
-                }
+                // Si aucune date n'est retournée (cas improbable), on utilise la date actuelle
+                start = end;
             }
         } catch (Exception e) {
             logger.warn("Format de date invalide - startDate: {}, endDate: {}", startDate, endDate);

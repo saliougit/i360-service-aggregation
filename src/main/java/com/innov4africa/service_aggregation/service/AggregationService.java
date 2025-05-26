@@ -51,6 +51,18 @@ public class AggregationService {
     @Autowired
     private InMemoryBalanceCache memoryCache;
 
+    // Map Period to aggregation intervals
+    private Duration getIntervalForPeriod(Period period) {
+        Duration interval;
+        switch (period) {
+            case WEEK -> interval = Duration.ofDays(1);      // Daily aggregation for week view
+            case MONTH -> interval = Duration.ofDays(7);     // Weekly aggregation for month view  
+            case YEAR -> interval = Duration.ofDays(30);     // Monthly aggregation for year view
+            default -> interval = Duration.ofDays(1);        // Default to daily
+        }
+        return interval;
+    }
+    
     /**
      * Agrège les soldes de iPay et iBanking pour un utilisateur
      */
@@ -329,13 +341,9 @@ public class AggregationService {
                 )
             ));
         });
-    }
-
-    /**
+    }    /**
      * Récupère l'historique des soldes iPay avec agrégation par période
-     */
-    @Override
-    public Mono<BalanceHistoryResponse> getBalanceHistory(String telephone, LocalDateTime startDate, LocalDateTime endDate, Period period, String authToken) {
+     */    public Mono<BalanceHistoryResponse> getBalanceHistory(String telephone, String accountId, LocalDateTime startDate, LocalDateTime endDate, Period period, String ipayToken) {
         String cacheKey = CACHE_KEY_PREFIX + "history:ipay:" + telephone + ":" + startDate + ":" + endDate + ":" + period;
         
         // Vérification du cache Redis
@@ -350,61 +358,80 @@ public class AggregationService {
             logger.warn("Redis indisponible: {}", e.getMessage());
         }
         
-        // Calcul de l'intervalle selon la période
-        Duration interval = switch (period) {
-            case WEEK -> Duration.ofDays(1); // Données journalières
-            case MONTH -> Duration.ofWeeks(1); // Données hebdomadaires
-            case YEAR -> Duration.ofMonths(1); // Données mensuelles
-        };
-        
-        // Récupération des données
-        return payService.getBalanceHistory(telephone, startDate, endDate, authToken)
-            .map(response -> {
-                if (!"success".equals(response.getStatus())) {
-                    return response;
-                }
-                
-                // Aggrégation des données selon l'intervalle
-                List<BalanceHistory> aggregatedData = aggregateBalanceHistory(response.getData(), interval);
+        // Récupération des données selon la période
+        Duration interval = getIntervalForPeriod(period);
+        return ipayService.getBalanceHistory(ipayToken, accountId, startDate, endDate, period)
+            .map(history -> {
+                if (history.isEmpty()) {
+                    return new BalanceHistoryResponse(
+                        "success", 
+                        "Aucun historique trouvé",
+                        Collections.emptyList(),
+                        List.of(new ServiceStatus("i-pay", true, "Historique vide"))
+                    );
+                }                // Aggrégation des données selon l'intervalle
+                List<BalanceHistoryPoint> aggregatedData = aggregateBalanceHistoryPoints(history, interval);
                 
                 return new BalanceHistoryResponse(
                     "success",
                     "Historique des soldes récupéré avec succès",
                     aggregatedData,
-                    response.getServiceStatuses()
+                    List.of(new ServiceStatus("i-pay", true, "Historique récupéré"))
                 );
             });
     }
 
-    private List<BalanceHistory> aggregateBalanceHistory(List<BalanceHistory> rawData, Duration interval) {
+    private List<BalanceHistoryPoint> aggregateBalanceHistoryPoints(List<BalanceHistoryPoint> rawData, Duration interval) {
         if (rawData == null || rawData.isEmpty()) {
             return Collections.emptyList();
         }
         
         // Tri des données par date
-        rawData.sort(Comparator.comparing(BalanceHistory::getDate));
-        
-        List<BalanceHistory> aggregatedData = new ArrayList<>();
-        LocalDateTime currentDate = rawData.get(0).getDate();
-        LocalDateTime endDate = rawData.get(rawData.size() - 1).getDate();
-        
-        while (currentDate.isBefore(endDate) || currentDate.isEqual(endDate)) {
-            LocalDateTime nextDate = currentDate.plus(interval);
-            
-            // Filtre et agrège les données pour l'intervalle courant
-            double averageBalance = rawData.stream()
-                .filter(bh -> !bh.getDate().isBefore(currentDate) && bh.getDate().isBefore(nextDate))
-                .mapToDouble(BalanceHistory::getBalance)
-                .average()
-                .orElse(0.0);
-            
-            if (averageBalance > 0) {
-                aggregatedData.add(new BalanceHistory(currentDate, averageBalance));
+        rawData.sort(Comparator.comparing(BalanceHistoryPoint::getRawDate));
+          List<BalanceHistoryPoint> aggregatedData = new ArrayList<>();
+        final LocalDateTime startDate = rawData.get(0).getRawDate();
+        final LocalDateTime endDate = rawData.get(rawData.size() - 1).getRawDate();
+        final Period period = rawData.get(0).getPeriod(); // Keep the same period for aggregated points
+          // Calculate number of intervals needed
+        long intervalCount = interval.toDays();
+        if (intervalCount > 0) {
+            for (LocalDateTime date = startDate; !date.isAfter(endDate); date = date.plus(interval)) {
+                final LocalDateTime intervalStart = date;
+                final LocalDateTime intervalEnd = date.plus(interval);
+                
+                // Filtre et agrège les données pour l'intervalle courant
+                List<BalanceHistoryPoint> intervalPoints = rawData.stream()
+                    .filter(bh -> !bh.getRawDate().isBefore(intervalStart) && bh.getRawDate().isBefore(intervalEnd))
+                    .toList();
+                
+                if (!intervalPoints.isEmpty()) {
+                    double averageGlobalBalance = intervalPoints.stream()
+                        .mapToDouble(BalanceHistoryPoint::getGlobalBalance)
+                        .average()
+                        .orElse(0.0);
+                        
+                    double averageIPayBalance = intervalPoints.stream()
+                        .mapToDouble(BalanceHistoryPoint::getiPayBalance)
+                        .average()
+                        .orElse(0.0);
+                        
+                    double averageIBankingBalance = intervalPoints.stream()
+                        .mapToDouble(BalanceHistoryPoint::getiBankingBalance)
+                        .average()
+                        .orElse(0.0);
+                    
+                    if (averageGlobalBalance > 0 || averageIPayBalance > 0 || averageIBankingBalance > 0) {
+                        aggregatedData.add(new BalanceHistoryPoint(
+                            intervalStart, 
+                            averageGlobalBalance,
+                            averageIPayBalance,
+                            averageIBankingBalance,
+                            period
+                        ));
+                    }
+                }
             }
-            
-            currentDate = nextDate;
         }
-        
-        return aggregatedData;
+          return aggregatedData;
     }
 }
