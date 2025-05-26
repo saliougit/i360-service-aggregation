@@ -29,6 +29,8 @@ import org.xml.sax.InputSource;
 import com.innov4africa.service_aggregation.model.AuthResult;
 import com.innov4africa.service_aggregation.repository.UserSessionRepository;
 import com.innov4africa.service_aggregation.model.BalanceHistoryPoint;
+import  com.innov4africa.service_aggregation.utils.DateUtils;
+import com.innov4africa.service_aggregation.model.Period;
 
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
@@ -1088,8 +1090,8 @@ public Mono<String> getAllNotif(String sessionId, String uoId) {
     /**
      * Récupère et convertit l'historique des soldes iPay pour la période demandée
      */
-    public Mono<List<BalanceHistoryPoint>> getBalanceHistory(String ipayToken, String accountId, LocalDateTime startDate, LocalDateTime endDate) {
-        logger.info("Récupération de l'historique iPay pour le compte: {}", accountId);
+    public Mono<List<BalanceHistoryPoint>> getBalanceHistory(String ipayToken, String accountId, LocalDateTime startDate, LocalDateTime endDate, Period period) {
+        logger.info("Récupération de l'historique iPay pour le compte: {} avec la période: {}", accountId, period);
         
         return getHistorySolde(ipayToken, accountId)
             .flatMap(xmlResponse -> {
@@ -1117,14 +1119,15 @@ public Mono<String> getAllNotif(String sessionId, String uoId) {
                             // Conversion de la date
                             LocalDateTime date = LocalDate.parse(dateStr, dateFormatter).atStartOfDay();
                             
-                            // Ne prend que les points dans l'intervalle demandé
-                            if (!date.isBefore(startDate) && !date.isAfter(endDate)) {
+                            // Ne prend que les points dans l'intervalle demandé et la période
+                            if (!date.isBefore(startDate) && !date.isAfter(endDate) && DateUtils.isInPeriod(date, startDate, period)) {
                                 double amount = Double.parseDouble(solde);
                                 history.add(new BalanceHistoryPoint(
                                     date,
                                     amount,
                                     amount, // iPay balance
-                                    0 // iBanking balance sera ajouté par l'AggregationService
+                                    0, // iBanking balance sera ajouté par l'AggregationService
+                                    period
                                 ));
                             }
                         }

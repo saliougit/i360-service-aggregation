@@ -1,8 +1,11 @@
 package com.innov4africa.service_aggregation.service;
 
 import java.io.StringReader;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -20,11 +23,13 @@ import org.w3c.dom.Document;
 import org.xml.sax.InputSource;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.innov4africa.service_aggregation.model.BalanceHistory;
 import com.innov4africa.service_aggregation.model.BalanceHistoryPoint;
 import com.innov4africa.service_aggregation.model.BalanceHistoryResponse;
 import com.innov4africa.service_aggregation.model.GlobalBalanceResponse;
 import com.innov4africa.service_aggregation.model.IBankingBalanceResponse;
 import com.innov4africa.service_aggregation.model.ServiceStatus;
+import com.innov4africa.service_aggregation.model.Period;
 
 import reactor.core.publisher.Mono;
 
@@ -163,14 +168,96 @@ public class AggregationService {
     /**
      * Récupère l'historique consolidé des soldes iPay et iBanking
      */
-    public Mono<BalanceHistoryResponse> getBalanceHistory(String telephone, String email, String ipayToken, String accountId, LocalDateTime startDate, LocalDateTime endDate) {
-        String cacheKey = CACHE_KEY_PREFIX + "history:" + telephone + ":" + email + ":" + startDate + ":" + endDate;
+    // public Mono<BalanceHistoryResponse> getBalanceHistory(String telephone, String email, String ipayToken, String accountId, LocalDateTime startDate, LocalDateTime endDate) {
+    //     String cacheKey = CACHE_KEY_PREFIX + "history:" + telephone + ":" + email + ":" + startDate + ":" + endDate;
+        
+    //     // Vérification du cache Redis
+    //     try {
+    //         String cachedValue = redisTemplate.opsForValue().get(cacheKey);
+    //         if (cachedValue != null) {
+    //             logger.info("Utilisation du cache Redis pour l'historique - telephone: {}", telephone);
+    //             ObjectMapper mapper = new ObjectMapper();
+    //             return Mono.just(mapper.readValue(cachedValue, BalanceHistoryResponse.class));
+    //         }
+    //     } catch (Exception e) {
+    //         logger.warn("Redis indisponible: {}", e.getMessage());
+    //     }
+        
+    //     // Récupération parallèle des historiques
+    //     return Mono.zip(
+    //         ipayService.getBalanceHistory(ipayToken, accountId, startDate, endDate),
+    //         iBankingService.getBalanceHistory(email, startDate, endDate)
+    //     ).map(tuple -> {
+    //         List<BalanceHistoryPoint> ipayHistory = tuple.getT1();
+    //         List<BalanceHistoryPoint> iBankingHistory = tuple.getT2();
+            
+    //         // Fusion et agrégation des historiques
+    //         Map<LocalDateTime, BalanceHistoryPoint> mergedHistory = new TreeMap<>();
+            
+    //         // Traitement de l'historique iPay
+    //         for (BalanceHistoryPoint point : ipayHistory) {
+    //             mergedHistory.put(point.getDate(), point);
+    //         }
+            
+    //         // Fusion avec l'historique iBanking
+    //         for (BalanceHistoryPoint point : iBankingHistory) {
+    //             LocalDateTime date = point.getDate();
+    //             BalanceHistoryPoint existingPoint = mergedHistory.get(date);
+    //               if (existingPoint != null) {
+    //                 // Mettre à jour le point existant avec les données iBanking
+    //                 existingPoint.setiBankingBalance(point.getiBankingBalance());
+    //                 existingPoint.setGlobalBalance(existingPoint.getiPayBalance() + point.getiBankingBalance());
+    //             } else {
+    //                 // Créer un nouveau point
+    //                 mergedHistory.put(date, point);
+    //             }
+    //         }
+            
+    //         BalanceHistoryResponse response = new BalanceHistoryResponse(
+    //             "success",
+    //             "Historique consolidé récupéré avec succès",
+    //             new ArrayList<>(mergedHistory.values()),
+    //             List.of(
+    //                 new ServiceStatus("i-pay", true, "Historique récupéré"),
+    //                 new ServiceStatus("i-banking", true, "Historique récupéré")
+    //             )
+    //         );
+            
+    //         // Mise en cache Redis
+    //         try {
+    //             ObjectMapper mapper = new ObjectMapper();
+    //             String jsonValue = mapper.writeValueAsString(response);
+    //             redisTemplate.opsForValue().set(cacheKey, jsonValue, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
+    //         } catch (Exception e) {
+    //             logger.warn("Impossible de mettre en cache Redis: {}", e.getMessage());
+    //         }
+            
+    //         return response;
+    //     })
+    //     .onErrorResume(e -> {
+    //         logger.error("Erreur lors de la récupération de l'historique", e);
+    //         return Mono.just(new BalanceHistoryResponse(
+    //             "error",
+    //             "Erreur lors de la récupération de l'historique",
+    //             List.of(),
+    //             List.of(
+    //                 new ServiceStatus("i-pay", false, "Service indisponible"),
+    //                 new ServiceStatus("i-banking", false, "Service indisponible")
+    //             )
+    //         ));
+    //     });
+    /**
+     * Récupère l'historique consolidé des soldes iPay et iBanking avec filtrage par période
+     */
+    public Mono<BalanceHistoryResponse> getBalanceHistory(String telephone, String email, String ipayToken, String accountId, 
+            LocalDateTime startDate, LocalDateTime endDate, Period period) {
+        String cacheKey = CACHE_KEY_PREFIX + "history:" + telephone + ":" + email + ":" + startDate + ":" + endDate + ":" + period;
         
         // Vérification du cache Redis
         try {
             String cachedValue = redisTemplate.opsForValue().get(cacheKey);
             if (cachedValue != null) {
-                logger.info("Utilisation du cache Redis pour l'historique - telephone: {}", telephone);
+                logger.info("Utilisation du cache Redis pour l'historique - telephone: {}, période: {}", telephone, period);
                 ObjectMapper mapper = new ObjectMapper();
                 return Mono.just(mapper.readValue(cachedValue, BalanceHistoryResponse.class));
             }
@@ -180,8 +267,8 @@ public class AggregationService {
         
         // Récupération parallèle des historiques
         return Mono.zip(
-            ipayService.getBalanceHistory(ipayToken, accountId, startDate, endDate),
-            iBankingService.getBalanceHistory(email, startDate, endDate)
+            ipayService.getBalanceHistory(ipayToken, accountId, startDate, endDate, period),
+            iBankingService.getBalanceHistory(email, startDate, endDate, period)
         ).map(tuple -> {
             List<BalanceHistoryPoint> ipayHistory = tuple.getT1();
             List<BalanceHistoryPoint> iBankingHistory = tuple.getT2();
@@ -191,19 +278,20 @@ public class AggregationService {
             
             // Traitement de l'historique iPay
             for (BalanceHistoryPoint point : ipayHistory) {
-                mergedHistory.put(point.getDate(), point);
+                mergedHistory.put(point.getRawDate(), point);
             }
             
             // Fusion avec l'historique iBanking
             for (BalanceHistoryPoint point : iBankingHistory) {
-                LocalDateTime date = point.getDate();
+                LocalDateTime date = point.getRawDate();
                 BalanceHistoryPoint existingPoint = mergedHistory.get(date);
-                  if (existingPoint != null) {
+                if (existingPoint != null) {
                     // Mettre à jour le point existant avec les données iBanking
                     existingPoint.setiBankingBalance(point.getiBankingBalance());
                     existingPoint.setGlobalBalance(existingPoint.getiPayBalance() + point.getiBankingBalance());
                 } else {
-                    // Créer un nouveau point
+                    // Créer un nouveau point avec la période
+                    point.setPeriod(period);
                     mergedHistory.put(date, point);
                 }
             }
@@ -241,5 +329,82 @@ public class AggregationService {
                 )
             ));
         });
+    }
+
+    /**
+     * Récupère l'historique des soldes iPay avec agrégation par période
+     */
+    @Override
+    public Mono<BalanceHistoryResponse> getBalanceHistory(String telephone, LocalDateTime startDate, LocalDateTime endDate, Period period, String authToken) {
+        String cacheKey = CACHE_KEY_PREFIX + "history:ipay:" + telephone + ":" + startDate + ":" + endDate + ":" + period;
+        
+        // Vérification du cache Redis
+        try {
+            String cachedValue = redisTemplate.opsForValue().get(cacheKey);
+            if (cachedValue != null) {
+                logger.info("Utilisation du cache Redis pour l'historique iPay - telephone: {}, période: {}", telephone, period);
+                ObjectMapper mapper = new ObjectMapper();
+                return Mono.just(mapper.readValue(cachedValue, BalanceHistoryResponse.class));
+            }
+        } catch (Exception e) {
+            logger.warn("Redis indisponible: {}", e.getMessage());
+        }
+        
+        // Calcul de l'intervalle selon la période
+        Duration interval = switch (period) {
+            case WEEK -> Duration.ofDays(1); // Données journalières
+            case MONTH -> Duration.ofWeeks(1); // Données hebdomadaires
+            case YEAR -> Duration.ofMonths(1); // Données mensuelles
+        };
+        
+        // Récupération des données
+        return payService.getBalanceHistory(telephone, startDate, endDate, authToken)
+            .map(response -> {
+                if (!"success".equals(response.getStatus())) {
+                    return response;
+                }
+                
+                // Aggrégation des données selon l'intervalle
+                List<BalanceHistory> aggregatedData = aggregateBalanceHistory(response.getData(), interval);
+                
+                return new BalanceHistoryResponse(
+                    "success",
+                    "Historique des soldes récupéré avec succès",
+                    aggregatedData,
+                    response.getServiceStatuses()
+                );
+            });
+    }
+
+    private List<BalanceHistory> aggregateBalanceHistory(List<BalanceHistory> rawData, Duration interval) {
+        if (rawData == null || rawData.isEmpty()) {
+            return Collections.emptyList();
+        }
+        
+        // Tri des données par date
+        rawData.sort(Comparator.comparing(BalanceHistory::getDate));
+        
+        List<BalanceHistory> aggregatedData = new ArrayList<>();
+        LocalDateTime currentDate = rawData.get(0).getDate();
+        LocalDateTime endDate = rawData.get(rawData.size() - 1).getDate();
+        
+        while (currentDate.isBefore(endDate) || currentDate.isEqual(endDate)) {
+            LocalDateTime nextDate = currentDate.plus(interval);
+            
+            // Filtre et agrège les données pour l'intervalle courant
+            double averageBalance = rawData.stream()
+                .filter(bh -> !bh.getDate().isBefore(currentDate) && bh.getDate().isBefore(nextDate))
+                .mapToDouble(BalanceHistory::getBalance)
+                .average()
+                .orElse(0.0);
+            
+            if (averageBalance > 0) {
+                aggregatedData.add(new BalanceHistory(currentDate, averageBalance));
+            }
+            
+            currentDate = nextDate;
+        }
+        
+        return aggregatedData;
     }
 }

@@ -15,6 +15,8 @@ import com.innov4africa.service_aggregation.model.IBankingBalanceResponse;
 import com.innov4africa.service_aggregation.model.ServiceStatus;
 import com.innov4africa.service_aggregation.model.BalanceHistoryPoint;
 import com.innov4africa.service_aggregation.model.GlobalBalanceResponse;
+import com.innov4africa.service_aggregation.model.Period;
+import com.innov4africa.service_aggregation.utils.DateUtils;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Collections;
@@ -207,27 +209,43 @@ public class IBankingService {
      * Génère un historique simulé des soldes pour iBanking
      * Les valeurs sont déterministes pour un même email
      */
-    public Mono<List<BalanceHistoryPoint>> getBalanceHistory(String userEmail, LocalDateTime startDate, LocalDateTime endDate) {
-        logger.info("Récupération de l'historique iBanking pour l'utilisateur: {}", userEmail);
+    public Mono<List<BalanceHistoryPoint>> getBalanceHistory(String userEmail, LocalDateTime startDate, LocalDateTime endDate, Period period) {
+        logger.info("Récupération de l'historique iBanking pour l'utilisateur: {}, période: {}", userEmail, period);
         
         List<BalanceHistoryPoint> history = new ArrayList<>();
         int hashCode = Math.abs(userEmail.hashCode());
         Random random = new Random(hashCode); // Utilise le hashCode comme seed pour la génération pseudo-aléatoire
         
-        // Génère un point par jour dans l'intervalle
+        // Génère des points selon la période
         LocalDateTime currentDate = startDate;
         while (!currentDate.isAfter(endDate)) {
-            // Génère un montant entre 500 et 5000 FCFA
-            double baseAmount = 500 + (random.nextDouble() * 4500);
+            if (DateUtils.isInPeriod(currentDate, startDate, period)) {
+                // Génère un montant entre 500 et 5000 FCFA
+                double baseAmount = 500 + (random.nextDouble() * 4500);
+                
+                history.add(new BalanceHistoryPoint(
+                    currentDate,
+                    baseAmount,
+                    0, // iPayBalance sera ajouté par l'AggregationService
+                    baseAmount, // iBankingBalance
+                    period
+                ));
+            }
             
-            history.add(new BalanceHistoryPoint(
-                currentDate,
-                baseAmount,
-                0, // iPayBalance sera ajouté par l'AggregationService
-                baseAmount // iBankingBalance
-            ));
-            
-            currentDate = currentDate.plusDays(1);
+            // Ajuste l'incrément selon la période
+            switch (period) {
+                case WEEK:
+                    currentDate = currentDate.plusDays(1);
+                    break;
+                case MONTH:
+                    currentDate = currentDate.plusWeeks(1);
+                    break;
+                case YEAR:
+                    currentDate = currentDate.plusMonths(1);
+                    break;
+                default:
+                    currentDate = currentDate.plusDays(1);
+            }
         }
         
         return Mono.just(history);

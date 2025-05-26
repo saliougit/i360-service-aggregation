@@ -20,6 +20,7 @@ import com.innov4africa.service_aggregation.model.GlobalBalanceResponse;
 import com.innov4africa.service_aggregation.model.ServiceStatus;
 import com.innov4africa.service_aggregation.service.AggregationService;
 import com.innov4africa.service_aggregation.service.JwtUtil;
+import com.innov4africa.service_aggregation.model.Period;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -54,8 +55,9 @@ public class DashboardController {
     @GetMapping("/balance/history")
     public Mono<ResponseEntity<BalanceHistoryResponse>> getBalanceHistory(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
-            @RequestParam @Parameter(description = "Date de début (format: yyyy-MM-dd'T'HH:mm:ss)") String startDate,
-            @RequestParam @Parameter(description = "Date de fin (format: yyyy-MM-dd'T'HH:mm:ss)") String endDate) {
+            @RequestParam(required = false) @Parameter(description = "Date de début (format: yyyy-MM-dd'T'HH:mm:ss)") String startDate,
+            @RequestParam(required = false) @Parameter(description = "Date de fin (format: yyyy-MM-dd'T'HH:mm:ss)") String endDate,
+            @RequestParam(required = false, defaultValue = "WEEK") @Parameter(description = "Type de période (WEEK, MONTH, YEAR)") String periodStr) {
         
         // 1. Vérification de la présence du header Authorization
         if (authHeader == null || authHeader.isBlank()) {
@@ -83,7 +85,18 @@ public class DashboardController {
                     List.of(new ServiceStatus("auth", false, "Non autorisé")))));
         }
         
-        // 4. Extraction des claims nécessaires du token
+        // 4. Validation de la période
+        Period period;
+        try {
+            period = Period.valueOf(periodStr.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            logger.warn("Type de période invalide: {}", periodStr);
+            return Mono.just(ResponseEntity.badRequest()
+                .body(new BalanceHistoryResponse("error", "Type de période invalide", null,
+                    List.of(new ServiceStatus("validation", false, "Période invalide, utilisez WEEK, MONTH ou YEAR")))));
+        }
+        
+        // 5. Extraction des claims nécessaires du token
         String telephone = jwtUtil.extractTelephone(jwt);
         String email = jwtUtil.extractUsername(jwt);
         String ipayToken = jwtUtil.extractIpayToken(jwt);
@@ -97,12 +110,29 @@ public class DashboardController {
                     List.of(new ServiceStatus("auth", false, "Token incomplet")))));
         }
         
-        // 5. Vérification et parsing des dates
+        // 6. Calcul ou vérification des dates
         LocalDateTime start, end;
         try {
             DateTimeFormatter formatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
-            start = LocalDateTime.parse(startDate, formatter);
-            end = LocalDateTime.parse(endDate, formatter);
+            if (startDate == null || endDate == null) {
+                // Calcul des dates selon la période si non fournies
+                end = LocalDateTime.now();
+                start = switch (period) {
+                    case WEEK -> end.minusWeeks(1);
+                    case MONTH -> end.minusMonths(1);
+                    case YEAR -> end.minusYears(1);
+                };
+            } else {
+                // Utilisation des dates fournies
+                start = LocalDateTime.parse(startDate, formatter);
+                end = LocalDateTime.parse(endDate, formatter);
+                
+                if (start.isAfter(end)) {
+                    return Mono.just(ResponseEntity.badRequest()
+                        .body(new BalanceHistoryResponse("error", "La date de début doit être antérieure à la date de fin", null,
+                            List.of(new ServiceStatus("validation", false, "Période invalide")))));
+                }
+            }
         } catch (Exception e) {
             logger.warn("Format de date invalide - startDate: {}, endDate: {}", startDate, endDate);
             return Mono.just(ResponseEntity.badRequest()
@@ -110,16 +140,11 @@ public class DashboardController {
                     List.of(new ServiceStatus("validation", false, "Format de date invalide")))));
         }
         
-        if (start.isAfter(end)) {
-            return Mono.just(ResponseEntity.badRequest()
-                .body(new BalanceHistoryResponse("error", "La date de début doit être antérieure à la date de fin", null,
-                    List.of(new ServiceStatus("validation", false, "Période invalide")))));
-        }
+        logger.info("Demande d'historique des soldes pour telephone: {}, période: {} de {} à {}", 
+            telephone, period, start, end);
         
-        logger.info("Demande d'historique des soldes pour telephone: {}, période: {} à {}", telephone, start, end);
-        
-        // 6. Appel du service d'agrégation
-        return aggregationService.getBalanceHistory(telephone, email, ipayToken, accountId, start, end)
+        // 7. Appel du service d'agrégation
+        return aggregationService.getBalanceHistory(telephone, email, ipayToken, accountId, start, end, period)
             .map(ResponseEntity::ok)
             .onErrorResume(e -> {
                 logger.error("Erreur lors de la récupération de l'historique des soldes", e);
