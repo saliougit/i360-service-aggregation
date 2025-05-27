@@ -1,16 +1,10 @@
 package com.innov4africa.service_aggregation.service;
 
 import java.io.StringReader;
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -25,13 +19,12 @@ import org.w3c.dom.Document;
 import org.xml.sax.InputSource;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.innov4africa.service_aggregation.model.BalanceHistory;
 import com.innov4africa.service_aggregation.model.BalanceHistoryPoint;
-import com.innov4africa.service_aggregation.model.BalanceHistoryResponse;
 import com.innov4africa.service_aggregation.model.GlobalBalanceResponse;
 import com.innov4africa.service_aggregation.model.IBankingBalanceResponse;
-import com.innov4africa.service_aggregation.model.ServiceStatus;
 import com.innov4africa.service_aggregation.model.Period;
+import com.innov4africa.service_aggregation.model.ServiceStatus;
+import com.innov4africa.service_aggregation.utils.DateUtils;
 
 import reactor.core.publisher.Mono;
 
@@ -168,5 +161,119 @@ public class AggregationService {
         });
     }
 
-    
+    /**
+     * Récupère l'historique des soldes pour une période donnée
+     */
+    public Mono<List<BalanceHistoryPoint>> getBalanceHistory(
+            String telephone, String email, String ipayToken, String accountId,
+            LocalDateTime startDate, LocalDateTime endDate, Period period) {
+        
+        logger.info("Récupération de l'historique - période: {}, du {} au {}", period, startDate, endDate);
+        
+        // 1. Récupérer les données brutes des deux services en parallèle
+        return Mono.zip(
+            ipayService.getBalanceHistory(ipayToken, accountId, startDate, endDate, period),
+            iBankingService.getBalanceHistory(email, startDate, endDate, period)
+        ).map(tuple -> {
+            List<BalanceHistoryPoint> ipayHistory = tuple.getT1();
+            List<BalanceHistoryPoint> iBankingHistory = tuple.getT2();
+            List<BalanceHistoryPoint> result = new ArrayList<>();
+
+            // 2. Agréger selon la période
+            switch (period) {
+                case WEEK -> {
+                    // Pour la semaine courante, on agrège jour par jour
+                    List<LocalDate> daysInWeek = DateUtils.getDaysInPeriod(startDate, endDate);
+                    double cumulIpay = 0.0;
+                    double cumulIBanking = 0.0;
+
+                    for (LocalDate day : daysInWeek) {
+                        LocalDateTime dayStart = day.atStartOfDay();
+                        double ipayAmount = getAmountForDate(ipayHistory, dayStart);
+                        double iBankingAmount = getAmountForDate(iBankingHistory, dayStart);
+                        
+                        result.add(new BalanceHistoryPoint(
+                            dayStart,
+                            ipayAmount + iBankingAmount,
+                            ipayAmount,
+                            iBankingAmount,
+                            period
+                        ));
+                    }
+                }
+                case MONTH -> {
+                    // Pour le mois, on agrège par semaine avec cumul progressif
+                    List<LocalDateTime[]> weekRanges = DateUtils.getWeekRangesForMonth(endDate);
+                    double cumulIpay = 0.0;
+                    double cumulIBanking = 0.0;
+
+                    for (LocalDateTime[] weekRange : weekRanges) {
+                        LocalDateTime weekStart = weekRange[0];
+                        LocalDateTime weekEnd = weekRange[1];
+                        
+                        // Cumul pour la semaine
+                        double weekIpay = getAmountForPeriod(ipayHistory, weekStart, weekEnd);
+                        double weekIBanking = getAmountForPeriod(iBankingHistory, weekStart, weekEnd);
+                        
+                        cumulIpay += weekIpay;
+                        cumulIBanking += weekIBanking;
+                        
+                        result.add(new BalanceHistoryPoint(
+                            weekStart,
+                            cumulIpay + cumulIBanking,
+                            cumulIpay,
+                            cumulIBanking,
+                            period
+                        ));
+                    }
+                }
+                case YEAR -> {
+                    // Pour l'année, on agrège par mois avec cumul progressif
+                    List<LocalDateTime[]> monthRanges = DateUtils.getMonthRangesForYear(endDate);
+                    double cumulIpay = 0.0;
+                    double cumulIBanking = 0.0;
+
+                    for (LocalDateTime[] monthRange : monthRanges) {
+                        LocalDateTime monthStart = monthRange[0];
+                        LocalDateTime monthEnd = monthRange[1];
+                        
+                        // Cumul pour le mois
+                        double monthIpay = getAmountForPeriod(ipayHistory, monthStart, monthEnd);
+                        double monthIBanking = getAmountForPeriod(iBankingHistory, monthStart, monthEnd);
+                        
+                        cumulIpay += monthIpay;
+                        cumulIBanking += monthIBanking;
+                        
+                        result.add(new BalanceHistoryPoint(
+                            monthStart,
+                            cumulIpay + cumulIBanking,
+                            cumulIpay,
+                            cumulIBanking,
+                            period
+                        ));
+                    }
+                }
+            }
+            
+            return result;
+        });
+    }
+
+    private double getAmountForDate(List<BalanceHistoryPoint> history, LocalDateTime date) {
+        return history.stream()
+            .filter(point -> point.getRawDate().toLocalDate().equals(date.toLocalDate()))
+            .findFirst()
+            .map(BalanceHistoryPoint::getGlobalBalance)
+            .orElse(0.0);
+    }
+
+    private double getAmountForPeriod(List<BalanceHistoryPoint> history, LocalDateTime start, LocalDateTime end) {
+        return history.stream()
+            .filter(point -> {
+                LocalDateTime date = point.getRawDate();
+                return !date.isBefore(start) && !date.isAfter(end);
+            })
+            .mapToDouble(BalanceHistoryPoint::getGlobalBalance)
+            .sum();
+    }
 }

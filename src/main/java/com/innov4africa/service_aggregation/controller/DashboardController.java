@@ -111,7 +111,9 @@ public class DashboardController {
         }
         
         // 6. Calcul ou vérification des dates
-        LocalDateTime start, end;        try {
+        LocalDateTime start, end;  
+              
+        try {
             DateTimeFormatter formatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
             // On utilise toujours la date actuelle comme point de référence
             end = LocalDateTime.now();
@@ -135,15 +137,20 @@ public class DashboardController {
         logger.info("Demande d'historique des soldes pour telephone: {}, période: {} de {} à {}", 
             telephone, period, start, end);
         
-        // 7. Appel du service d'agrégation
         return aggregationService.getBalanceHistory(telephone, email, ipayToken, accountId, start, end, period)
-            .map(ResponseEntity::ok)
-            .onErrorResume(e -> {
-                logger.error("Erreur lors de la récupération de l'historique des soldes", e);
-                return Mono.just(ResponseEntity.internalServerError()
-                    .body(new BalanceHistoryResponse("error", "Erreur technique", null,
-                        List.of(new ServiceStatus("service", false, "Service temporairement indisponible")))));
-            });
+        .map(balancePoints -> new BalanceHistoryResponse(
+            "success",
+            "Historique récupéré avec succès",
+            balancePoints,
+            List.of(new ServiceStatus("service", true, "OK"))
+        ))
+        .map(ResponseEntity::ok)
+        .onErrorResume(e -> {
+            logger.error("Erreur lors de la récupération de l'historique des soldes", e);
+            return Mono.just(ResponseEntity.internalServerError()
+                .body(new BalanceHistoryResponse("error", "Erreur technique", null,
+                    List.of(new ServiceStatus("service", false, "Service temporairement indisponible")))));
+        });
     }
 
     @Operation(

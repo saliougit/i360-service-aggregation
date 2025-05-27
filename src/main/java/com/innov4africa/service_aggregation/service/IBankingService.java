@@ -1,32 +1,32 @@
 package com.innov4africa.service_aggregation.service;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.BodyInserters;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import com.innov4africa.service_aggregation.model.IBankingTokenResponse;
-import com.innov4africa.service_aggregation.model.IBankingBalanceResponse;
-import com.innov4africa.service_aggregation.model.ServiceStatus;
+import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.web.reactive.function.client.WebClient;
+
 import com.innov4africa.service_aggregation.model.BalanceHistoryPoint;
-import com.innov4africa.service_aggregation.model.GlobalBalanceResponse;
+import com.innov4africa.service_aggregation.model.IBankingBalanceResponse;
+import com.innov4africa.service_aggregation.model.IBankingTokenResponse;
 import com.innov4africa.service_aggregation.model.Period;
+import com.innov4africa.service_aggregation.model.ServiceStatus;
 import com.innov4africa.service_aggregation.utils.DateUtils;
-import java.util.Map;
-import java.util.HashMap;
-import java.util.Collections;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.Random;
-import java.time.LocalDateTime;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Random;
+
+import reactor.core.publisher.Mono;
 
 @Service
 public class IBankingService {
@@ -206,48 +206,83 @@ public class IBankingService {
     }
     
     /**
-     * Génère un historique simulé des soldes pour iBanking
-     * Les valeurs sont déterministes pour un même email
-     */
+ * Génère un historique simulé des soldes pour iBanking.
+ * Les valeurs sont déterministes pour un même email.
+ */
     public Mono<List<BalanceHistoryPoint>> getBalanceHistory(String userEmail, LocalDateTime startDate, LocalDateTime endDate, Period period) {
         logger.info("Récupération de l'historique iBanking pour l'utilisateur: {}, période: {}", userEmail, period);
-        
+
         List<BalanceHistoryPoint> history = new ArrayList<>();
         int hashCode = Math.abs(userEmail.hashCode());
-        Random random = new Random(hashCode); // Utilise le hashCode comme seed pour la génération pseudo-aléatoire
-        
-        // Génère des points selon la période
-        LocalDateTime currentDate = startDate;
-        while (!currentDate.isAfter(endDate)) {
-            if (DateUtils.isInPeriod(currentDate, startDate, period)) {
-                // Génère un montant entre 500 et 5000 FCFA
-                double baseAmount = 500 + (random.nextDouble() * 4500);
-                
-                history.add(new BalanceHistoryPoint(
-                    currentDate,
-                    baseAmount,
-                    0, // iPayBalance sera ajouté par l'AggregationService
-                    baseAmount, // iBankingBalance
-                    period
-                ));
+        Random random = new Random(hashCode); // Génération déterministe basée sur l'email
+
+        switch (period) {
+            case WEEK -> {
+                // Génère un point par jour avec des montants à additionner
+                LocalDateTime weekStart = DateUtils.getWeekStart(endDate);
+                List<LocalDate> daysInWeek = DateUtils.getDaysInPeriod(weekStart, endDate);
+                double weekTotal = 0;
+
+                for (LocalDate day : daysInWeek) {
+                    double dailyAmount = 500 + (random.nextDouble() * 1500); // Montant quotidien entre 500 et 2000
+                    weekTotal += dailyAmount; // Cumul des montants
+
+                    history.add(new BalanceHistoryPoint(
+                        day.atStartOfDay(),
+                        weekTotal, // On utilise le total cumulé
+                        0,
+                        weekTotal,
+                        period
+                    ));
+                }
             }
-            
-            // Ajuste l'incrément selon la période
-            switch (period) {
-                case WEEK:
-                    currentDate = currentDate.plusDays(1);
-                    break;
-                case MONTH:
-                    currentDate = currentDate.plusWeeks(1);
-                    break;
-                case YEAR:
-                    currentDate = currentDate.plusMonths(1);
-                    break;
-                default:
-                    currentDate = currentDate.plusDays(1);
+            case MONTH -> {
+                // Génère un point par semaine avec la somme des montants quotidiens
+                List<LocalDateTime[]> weekRanges = DateUtils.getWeekRangesForMonth(endDate);
+                double monthTotal = 0;
+
+                for (LocalDateTime[] weekRange : weekRanges) {
+                    double weekTotal = 0;
+                    // Simuler 7 jours de transactions pour la semaine
+                    for (int i = 0; i < 7; i++) {
+                        weekTotal += 500 + (random.nextDouble() * 1500); // Montants quotidiens entre 500 et 2000
+                    }
+                    monthTotal += weekTotal;
+
+                    history.add(new BalanceHistoryPoint(
+                        weekRange[0],
+                        monthTotal, // On utilise le total cumulé du mois
+                        0,
+                        monthTotal,
+                        period
+                    ));
+                }
+            }
+            case YEAR -> {
+                // Génère un point par mois avec la somme des montants quotidiens
+                List<LocalDateTime[]> monthRanges = DateUtils.getMonthRangesForYear(endDate);
+                double yearTotal = 0;
+
+                for (LocalDateTime[] monthRange : monthRanges) {
+                    double monthTotal = 0;
+                    // Simuler 30 jours de transactions pour le mois
+                    for (int i = 0; i < 30; i++) {
+                        monthTotal += 500 + (random.nextDouble() * 1500); // Montants quotidiens entre 500 et 2000
+                    }
+                    yearTotal += monthTotal;
+
+                    history.add(new BalanceHistoryPoint(
+                        monthRange[0],
+                        yearTotal, // On utilise le total cumulé de l'année
+                        0,
+                        yearTotal,
+                        period
+                    ));
+                }
             }
         }
-        
+
         return Mono.just(history);
     }
+
 }
