@@ -170,7 +170,6 @@ public class AggregationService {
         
         logger.info("Récupération de l'historique - période: {}, du {} au {}", period, startDate, endDate);
         
-        // 1. Récupérer les données brutes des deux services en parallèle
         return Mono.zip(
             ipayService.getBalanceHistory(ipayToken, accountId, startDate, endDate, period),
             iBankingService.getBalanceHistory(email, startDate, endDate, period)
@@ -179,14 +178,9 @@ public class AggregationService {
             List<BalanceHistoryPoint> iBankingHistory = tuple.getT2();
             List<BalanceHistoryPoint> result = new ArrayList<>();
 
-            // 2. Agréger selon la période
             switch (period) {
                 case WEEK -> {
-                    // Pour la semaine courante, on agrège jour par jour
                     List<LocalDate> daysInWeek = DateUtils.getDaysInPeriod(startDate, endDate);
-                    double cumulIpay = 0.0;
-                    double cumulIBanking = 0.0;
-
                     for (LocalDate day : daysInWeek) {
                         LocalDateTime dayStart = day.atStartOfDay();
                         double ipayAmount = getAmountForDate(ipayHistory, dayStart);
@@ -202,53 +196,33 @@ public class AggregationService {
                     }
                 }
                 case MONTH -> {
-                    // Pour le mois, on agrège par semaine avec cumul progressif
                     List<LocalDateTime[]> weekRanges = DateUtils.getWeekRangesForMonth(endDate);
-                    double cumulIpay = 0.0;
-                    double cumulIBanking = 0.0;
-
                     for (LocalDateTime[] weekRange : weekRanges) {
                         LocalDateTime weekStart = weekRange[0];
-                        LocalDateTime weekEnd = weekRange[1];
-                        
-                        // Cumul pour la semaine
-                        double weekIpay = getAmountForPeriod(ipayHistory, weekStart, weekEnd);
-                        double weekIBanking = getAmountForPeriod(iBankingHistory, weekStart, weekEnd);
-                        
-                        cumulIpay += weekIpay;
-                        cumulIBanking += weekIBanking;
+                        double ipayAmount = getAmountForDate(ipayHistory, weekStart);
+                        double iBankingAmount = getAmountForDate(iBankingHistory, weekStart);
                         
                         result.add(new BalanceHistoryPoint(
                             weekStart,
-                            cumulIpay + cumulIBanking,
-                            cumulIpay,
-                            cumulIBanking,
+                            ipayAmount + iBankingAmount,
+                            ipayAmount,
+                            iBankingAmount,
                             period
                         ));
                     }
                 }
                 case YEAR -> {
-                    // Pour l'année, on agrège par mois avec cumul progressif
                     List<LocalDateTime[]> monthRanges = DateUtils.getMonthRangesForYear(endDate);
-                    double cumulIpay = 0.0;
-                    double cumulIBanking = 0.0;
-
                     for (LocalDateTime[] monthRange : monthRanges) {
                         LocalDateTime monthStart = monthRange[0];
-                        LocalDateTime monthEnd = monthRange[1];
-                        
-                        // Cumul pour le mois
-                        double monthIpay = getAmountForPeriod(ipayHistory, monthStart, monthEnd);
-                        double monthIBanking = getAmountForPeriod(iBankingHistory, monthStart, monthEnd);
-                        
-                        cumulIpay += monthIpay;
-                        cumulIBanking += monthIBanking;
+                        double ipayAmount = getAmountForDate(ipayHistory, monthStart);
+                        double iBankingAmount = getAmountForDate(iBankingHistory, monthStart);
                         
                         result.add(new BalanceHistoryPoint(
                             monthStart,
-                            cumulIpay + cumulIBanking,
-                            cumulIpay,
-                            cumulIBanking,
+                            ipayAmount + iBankingAmount,
+                            ipayAmount,
+                            iBankingAmount,
                             period
                         ));
                     }
