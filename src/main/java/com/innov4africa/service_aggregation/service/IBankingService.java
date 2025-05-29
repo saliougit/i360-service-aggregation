@@ -205,79 +205,77 @@ public class IBankingService {
         ));
     }
     
-    /**
- * Génère un historique simulé des soldes pour iBanking.
- * Les valeurs sont déterministes pour un même email.
- */
+        /**
+     * Génère un historique simulé des soldes pour iBanking.
+     * Les valeurs sont déterministes pour un même email.
+     */
     public Mono<List<BalanceHistoryPoint>> getBalanceHistory(String userEmail, LocalDateTime startDate, LocalDateTime endDate, Period period) {
         logger.info("Récupération de l'historique iBanking pour l'utilisateur: {}, période: {}", userEmail, period);
 
         List<BalanceHistoryPoint> history = new ArrayList<>();
         int hashCode = Math.abs(userEmail.hashCode());
         Random random = new Random(hashCode); // Génération déterministe basée sur l'email
+        double previousClosing = 1000 + (random.nextDouble() * 2000); // Solde initial entre 1000 et 3000
 
         switch (period) {
             case WEEK -> {
-                // Génère un point par jour avec des montants à additionner
+                // Génère un point par jour
                 LocalDateTime weekStart = DateUtils.getWeekStart(endDate);
                 List<LocalDate> daysInWeek = DateUtils.getDaysInPeriod(weekStart, endDate);
-                double weekTotal = 0;
 
                 for (LocalDate day : daysInWeek) {
-                    double dailyAmount = 500 + (random.nextDouble() * 1500); // Montant quotidien entre 500 et 2000
-                    weekTotal += dailyAmount; // Cumul des montants
-
+                    double dailyVariation = 500 + (random.nextDouble() * 1500); // Variation quotidienne entre 500 et 2000
+                    double currentClosing = previousClosing + (random.nextBoolean() ? dailyVariation : -dailyVariation);
+                    
                     history.add(new BalanceHistoryPoint(
                         day.atStartOfDay(),
-                        weekTotal, // On utilise le total cumulé
-                        0,
-                        weekTotal,
+                        previousClosing,    // opening
+                        currentClosing,     // closing
+                        0.0,               // ipayAmount (0 car c'est iBanking)
+                        currentClosing,     // ibankingAmount (même que closing car c'est iBanking)
                         period
                     ));
+                    previousClosing = currentClosing;
                 }
             }
             case MONTH -> {
-                // Génère un point par semaine avec la somme des montants quotidiens
+                // Génère un point par semaine
                 List<LocalDateTime[]> weekRanges = DateUtils.getWeekRangesForMonth(endDate);
-                double monthTotal = 0;
 
                 for (LocalDateTime[] weekRange : weekRanges) {
-                    double weekTotal = 0;
-                    // Simuler 7 jours de transactions pour la semaine
-                    for (int i = 0; i < 7; i++) {
-                        weekTotal += 500 + (random.nextDouble() * 1500); // Montants quotidiens entre 500 et 2000
-                    }
-                    monthTotal += weekTotal;
-
+                    // Simuler une variation hebdomadaire
+                    double weeklyVariation = (500 + (random.nextDouble() * 1500)) * 7;
+                    double currentClosing = previousClosing + (random.nextBoolean() ? weeklyVariation : -weeklyVariation);
+                    
                     history.add(new BalanceHistoryPoint(
                         weekRange[0],
-                        monthTotal, // On utilise le total cumulé du mois
-                        0,
-                        monthTotal,
+                        previousClosing,    // opening
+                        currentClosing,     // closing
+                        0.0,               // ipayAmount (0 car c'est iBanking)
+                        currentClosing,     // ibankingAmount (même que closing car c'est iBanking)
                         period
                     ));
+                    previousClosing = currentClosing;
                 }
             }
             case YEAR -> {
-                // Génère un point par mois avec la somme des montants quotidiens
+                // Génère un point par mois
                 List<LocalDateTime[]> monthRanges = DateUtils.getMonthRangesForYear(endDate);
-                double yearTotal = 0;
 
                 for (LocalDateTime[] monthRange : monthRanges) {
-                    double monthTotal = 0;
-                    // Simuler 30 jours de transactions pour le mois
-                    for (int i = 0; i < 30; i++) {
-                        monthTotal += 500 + (random.nextDouble() * 1500); // Montants quotidiens entre 500 et 2000
-                    }
-                    yearTotal += monthTotal;
-
+                    // Simuler une variation mensuelle
+                    double monthlyVariation = (500 + (random.nextDouble() * 1500)) * 30;
+                    double currentClosing = previousClosing + (random.nextBoolean() ? monthlyVariation : -monthlyVariation);
+                    
                     history.add(new BalanceHistoryPoint(
                         monthRange[0],
-                        yearTotal, // On utilise le total cumulé de l'année
-                        0,
-                        yearTotal,
+                        previousClosing,    // opening
+                        currentClosing,     // closing
+                        0.0,               // ipayAmount (0 car c'est iBanking)
+                        currentClosing,     // ibankingAmount (même que closing car c'est iBanking)
                         period
                     ));
+                    previousClosing = currentClosing;
                 }
             }
         }

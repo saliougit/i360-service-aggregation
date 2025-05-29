@@ -6,31 +6,40 @@ import java.time.temporal.TemporalAdjusters;
 import java.util.Locale;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.innov4africa.service_aggregation.utils.DateUtils;
 
 public class BalanceHistoryPoint {
     @JsonIgnore
     private final LocalDateTime rawDate;
-    private final double globalBalance;
-    private final double iPayBalance;
-    private final double iBankingBalance;
+    private final double opening;
+    private final double closing;
+    private final String variation;
+    private final ServiceBalances services;
     @JsonIgnore
     private final Period period;
 
-    public BalanceHistoryPoint(LocalDateTime date, double globalBalance, 
-                             double iPayBalance, double iBankingBalance, Period period) {
+    public BalanceHistoryPoint(LocalDateTime date, double opening, double closing, 
+                             double ipayAmount, double ibankingAmount, Period period) {
         this.rawDate = date;
-        this.globalBalance = DateUtils.roundToTwoDecimals(globalBalance);
-        this.iPayBalance = DateUtils.roundToTwoDecimals(iPayBalance);
-        this.iBankingBalance = DateUtils.roundToTwoDecimals(iBankingBalance);
+        this.opening = DateUtils.roundToTwoDecimals(opening);
+        this.closing = DateUtils.roundToTwoDecimals(closing);
+        this.variation = formatVariation(closing - opening);
+        this.services = new ServiceBalances(
+            DateUtils.roundToTwoDecimals(ipayAmount),
+            DateUtils.roundToTwoDecimals(ibankingAmount)
+        );
         this.period = period != null ? period : Period.getDefault();
     }
 
-    public String getDate() {
+    private String formatVariation(double amount) {
+        return (amount >= 0 ? "+" : "") + String.format("%.2f", amount);
+    }
+
+    public String getPeriod() {
         if (period == Period.MONTH) {
-            // Format spécial pour les semaines du mois : "Semaine X (dd-dd MMM)"
-            int weekNumber = ((rawDate.getDayOfMonth() - 1) / 7) + 1;
-            LocalDateTime weekStart = rawDate.withDayOfMonth(1).plusDays((weekNumber - 1) * 7);
+            int weekNumber = DateUtils.getWeekOfMonth(rawDate);
+            LocalDateTime weekStart = rawDate.withDayOfMonth(1).plusWeeks(weekNumber - 1);
             LocalDateTime weekEnd = weekStart.plusDays(6);
             if (weekEnd.isAfter(rawDate.with(TemporalAdjusters.lastDayOfMonth()))) {
                 weekEnd = rawDate.with(TemporalAdjusters.lastDayOfMonth());
@@ -45,26 +54,35 @@ public class BalanceHistoryPoint {
         return period.formatDate(rawDate);
     }
 
-    // Getters seulement (objet immutable)
+    // Getters
     @JsonIgnore
     public LocalDateTime getRawDate() {
         return rawDate;
     }
 
-    public double getGlobalBalance() {
-        return globalBalance;
+    @JsonProperty("period")
+    public String getFormattedPeriod() {
+        return getPeriod();
     }
 
-    public double getiPayBalance() {
-        return iPayBalance;
+    public double getOpening() {
+        return opening;
     }
 
-    public double getiBankingBalance() {
-        return iBankingBalance;
+    public double getClosing() {
+        return closing;
+    }
+
+    public String getVariation() {
+        return variation;
+    }
+
+    public ServiceBalances getServices() {
+        return services;
     }
 
     @JsonIgnore
-    public Period getPeriod() {
+    public Period getPeriodType() {
         return period;
     }
 }

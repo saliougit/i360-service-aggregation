@@ -31,6 +31,7 @@ import com.innov4africa.service_aggregation.repository.UserSessionRepository;
 import com.innov4africa.service_aggregation.model.BalanceHistoryPoint;
 import  com.innov4africa.service_aggregation.utils.DateUtils;
 import com.innov4africa.service_aggregation.model.Period;
+import com.innov4africa.service_aggregation.model.ServiceBalances;
 
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
@@ -1086,98 +1087,119 @@ public Mono<String> callIPayService(String xmlRequest) {
     }).subscribeOn(Schedulers.boundedElastic());
 }
 
-
-    /**
-     * Récupère et convertit l'historique des soldes iPay pour la période demandée
-     */
-    public Mono<List<BalanceHistoryPoint>> getBalanceHistory(String ipayToken, String accountId, LocalDateTime startDate, LocalDateTime endDate, Period period) {
-        logger.info("Récupération de l'historique iPay pour le compte: {} avec la période: {}", accountId, period);
-        
-        return getHistorySolde(ipayToken, accountId)
-            .flatMap(xmlResponse -> {
-                try {
-                    List<BalanceHistoryPoint> history = new ArrayList<>();
-                    Document doc = DocumentBuilderFactory.newInstance()
-                            .newDocumentBuilder()
-                            .parse(new InputSource(new StringReader(xmlResponse)));
+/**
+ * Récupère et convertit l'historique des soldes iPay pour la période demandée
+ */
+public Mono<List<BalanceHistoryPoint>> getBalanceHistory(String ipayToken, String accountId, 
+        LocalDateTime startDate, LocalDateTime endDate, Period period) {
+    logger.info("Récupération de l'historique iPay pour le compte: {} avec la période: {}", accountId, period);
+    
+    return getHistorySolde(ipayToken, accountId)
+        .flatMap(xmlResponse -> {
+            try {
+                List<BalanceHistoryPoint> history = new ArrayList<>();
+                Document doc = DocumentBuilderFactory.newInstance()
+                        .newDocumentBuilder()
+                        .parse(new InputSource(new StringReader(xmlResponse)));
+                
+                XPath xpath = XPathFactory.newInstance().newXPath();
+                String error = xpath.evaluate("//return/error", doc);
+                
+                if ("0".equals(error)) {
+                    NodeList historiesNodes = (NodeList) xpath.evaluate(
+                        "//return/histories", doc, XPathConstants.NODESET);
                     
-                    XPath xpath = XPathFactory.newInstance().newXPath();
-                    String error = xpath.evaluate("//return/error", doc);
+                    DateTimeFormatter dateFormatter = DateTimeFormatter.ISO_DATE_TIME;
+                    double previousClosing = 0.0;  // Pour suivre le solde d'ouverture
                     
-                    if ("0".equals(error)) {
-                        NodeList historiesNodes = (NodeList) xpath.evaluate(
-                            "//return/histories", doc, XPathConstants.NODESET);
-                        
-                        DateTimeFormatter dateFormatter = DateTimeFormatter.ISO_DATE_TIME; // Utiliser le format ISO qui gère le Z
-                        
-                        switch (period) {
-                            case WEEK -> {
-                                // Pour la semaine : tous les jours de la semaine courante
-                                LocalDateTime weekStart = DateUtils.getWeekStart(endDate);
+                    switch (period) {
+                        case WEEK -> {
+                            LocalDateTime weekStart = DateUtils.getWeekStart(endDate);
+                            for (int i = 0; i < historiesNodes.getLength(); i++) {
+                                org.w3c.dom.Node node = historiesNodes.item(i);
+                                LocalDateTime date = LocalDateTime.parse(xpath.evaluate("date", node), dateFormatter);
+                                
+                                if (!date.isBefore(weekStart) && !date.isAfter(endDate)) {
+                                    double amount = Double.parseDouble(xpath.evaluate("solde", node));
+                                    
+                                    history.add(new BalanceHistoryPoint(
+                                        date,
+                                        previousClosing,  // opening
+                                        amount,          // closing
+                                        amount,          // ipayAmount (même que closing car c'est iPay)
+                                        0.0,             // ibankingAmount (0 car c'est iPay)
+                                        period
+                                    ));
+                                    previousClosing = amount;
+                                }
+                            }
+                        }
+                        case MONTH -> {
+                            List<LocalDateTime[]> weekRanges = DateUtils.getWeekRangesForMonth(endDate);
+                            for (LocalDateTime[] weekRange : weekRanges) {
+                                LocalDateTime weekStart = weekRange[0];
+                                LocalDateTime weekEnd = weekRange[1];
+                                
+                                double latestAmount = 0.0;
+                                // On prend le dernier solde de la semaine
                                 for (int i = 0; i < historiesNodes.getLength(); i++) {
                                     org.w3c.dom.Node node = historiesNodes.item(i);
                                     LocalDateTime date = LocalDateTime.parse(xpath.evaluate("date", node), dateFormatter);
                                     
-                                    if (!date.isBefore(weekStart) && !date.isAfter(endDate)) {
-                                        double amount = Double.parseDouble(xpath.evaluate("solde", node));
-                                        history.add(new BalanceHistoryPoint(
-                                            date, amount, amount, 0, period
-                                        ));
+                                    if (!date.isBefore(weekStart) && !date.isAfter(weekEnd)) {
+                                        latestAmount = Double.parseDouble(xpath.evaluate("solde", node));
                                     }
                                 }
+                                
+                                history.add(new BalanceHistoryPoint(
+                                    weekStart,
+                                    previousClosing,  // opening
+                                    latestAmount,     // closing
+                                    latestAmount,     // ipayAmount (même que closing car c'est iPay)
+                                    0.0,             // ibankingAmount (0 car c'est iPay)
+                                    period
+                                ));
+                                previousClosing = latestAmount;
                             }
-                            case MONTH -> {
-                                // Pour le mois : cumul par semaine
-                                List<LocalDateTime[]> weekRanges = DateUtils.getWeekRangesForMonth(endDate);
-                                for (LocalDateTime[] weekRange : weekRanges) {
-                                    LocalDateTime weekStart = weekRange[0];
-                                    LocalDateTime weekEnd = weekRange[1];
+                        }
+                        case YEAR -> {
+                            List<LocalDateTime[]> monthRanges = DateUtils.getMonthRangesForYear(endDate);
+                            for (LocalDateTime[] monthRange : monthRanges) {
+                                LocalDateTime monthStart = monthRange[0];
+                                LocalDateTime monthEnd = monthRange[1];
+                                
+                                double latestAmount = 0.0;
+                                // On prend le dernier solde du mois
+                                for (int i = 0; i < historiesNodes.getLength(); i++) {
+                                    org.w3c.dom.Node node = historiesNodes.item(i);
+                                    LocalDateTime date = LocalDateTime.parse(xpath.evaluate("date", node), dateFormatter);
                                     
-                                    double weekTotal = 0;
-                                    for (int i = 0; i < historiesNodes.getLength(); i++) {
-                                        org.w3c.dom.Node node = historiesNodes.item(i);
-                                        LocalDateTime date = LocalDateTime.parse(xpath.evaluate("date", node), dateFormatter);
-                                        
-                                        if (!date.isBefore(weekStart) && !date.isAfter(weekEnd)) {
-                                            weekTotal += Double.parseDouble(xpath.evaluate("solde", node));
-                                        }
+                                    if (!date.isBefore(monthStart) && !date.isAfter(monthEnd)) {
+                                        latestAmount = Double.parseDouble(xpath.evaluate("solde", node));
                                     }
-                                    
-                                    history.add(new BalanceHistoryPoint(
-                                        weekStart, weekTotal, weekTotal, 0, period
-                                    ));
                                 }
-                            }
-                            case YEAR -> {
-                                // Pour l'année : cumul par mois
-                                List<LocalDateTime[]> monthRanges = DateUtils.getMonthRangesForYear(endDate);
-                                for (LocalDateTime[] monthRange : monthRanges) {
-                                    LocalDateTime monthStart = monthRange[0];
-                                    LocalDateTime monthEnd = monthRange[1];
-                                    
-                                    double monthTotal = 0;
-                                    for (int i = 0; i < historiesNodes.getLength(); i++) {
-                                        org.w3c.dom.Node node = historiesNodes.item(i);
-                                        LocalDateTime date = LocalDateTime.parse(xpath.evaluate("date", node), dateFormatter);
-                                        
-                                        if (!date.isBefore(monthStart) && !date.isAfter(monthEnd)) {
-                                            monthTotal += Double.parseDouble(xpath.evaluate("solde", node));
-                                        }
-                                    }
-                                    
-                                    history.add(new BalanceHistoryPoint(
-                                        monthStart, monthTotal, monthTotal, 0, period
-                                    ));
-                                }
+                                
+                                history.add(new BalanceHistoryPoint(
+                                    monthStart,
+                                    previousClosing,  // opening
+                                    latestAmount,     // closing
+                                    latestAmount,     // ipayAmount (même que closing car c'est iPay)
+                                    0.0,             // ibankingAmount (0 car c'est iPay)
+                                    period
+                                ));
+                                previousClosing = latestAmount;
                             }
                         }
                     }
-                    
-                    return Mono.just(history);
-                } catch (Exception e) {
-                    logger.error("Erreur lors du traitement de l'historique iPay", e);
-                    return Mono.error(e);
                 }
-            });
+                
+                return Mono.just(history);
+            } catch (Exception e) {
+                logger.error("Erreur lors du traitement de l'historique iPay", e);
+                return Mono.error(e);
+            }
+        });
     }
+
+    
 }

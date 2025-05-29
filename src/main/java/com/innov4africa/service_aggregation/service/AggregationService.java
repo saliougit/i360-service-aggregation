@@ -181,54 +181,66 @@ public class AggregationService {
             switch (period) {
                 case WEEK -> {
                     List<LocalDate> daysInWeek = DateUtils.getDaysInPeriod(startDate, endDate);
+                    double previousClosing = 0.0;  // Solde initial
                     for (LocalDate day : daysInWeek) {
                         LocalDateTime dayStart = day.atStartOfDay();
                         double ipayAmount = getAmountForDate(ipayHistory, dayStart);
                         double iBankingAmount = getAmountForDate(iBankingHistory, dayStart);
+                        double closing = ipayAmount + iBankingAmount;
                         
                         result.add(new BalanceHistoryPoint(
                             dayStart,
-                            ipayAmount + iBankingAmount,
-                            ipayAmount,
-                            iBankingAmount,
+                            previousClosing,   // opening
+                            closing,          // closing
+                            ipayAmount,       // montant iPay
+                            iBankingAmount,   // montant iBanking
                             period
                         ));
+                        previousClosing = closing;  // Pour le jour suivant
                     }
                 }
                 case MONTH -> {
                     List<LocalDateTime[]> weekRanges = DateUtils.getWeekRangesForMonth(endDate);
+                    double previousClosing = 0.0;   // Solde initial
                     for (LocalDateTime[] weekRange : weekRanges) {
                         LocalDateTime weekStart = weekRange[0];
                         double ipayAmount = getAmountForDate(ipayHistory, weekStart);
                         double iBankingAmount = getAmountForDate(iBankingHistory, weekStart);
+                        double closing = ipayAmount + iBankingAmount;
                         
                         result.add(new BalanceHistoryPoint(
                             weekStart,
-                            ipayAmount + iBankingAmount,
-                            ipayAmount,
-                            iBankingAmount,
+                            previousClosing,   // opening
+                            closing,          // closing
+                            ipayAmount,       // montant iPay
+                            iBankingAmount,   // montant iBanking
                             period
                         ));
+                        previousClosing = closing;  // Pour la semaine suivante
                     }
                 }
                 case YEAR -> {
                     List<LocalDateTime[]> monthRanges = DateUtils.getMonthRangesForYear(endDate);
+                    double previousClosing = 0.0;   // Solde initial
                     for (LocalDateTime[] monthRange : monthRanges) {
                         LocalDateTime monthStart = monthRange[0];
                         double ipayAmount = getAmountForDate(ipayHistory, monthStart);
                         double iBankingAmount = getAmountForDate(iBankingHistory, monthStart);
+                        double closing = ipayAmount + iBankingAmount;
                         
                         result.add(new BalanceHistoryPoint(
                             monthStart,
-                            ipayAmount + iBankingAmount,
-                            ipayAmount,
-                            iBankingAmount,
+                            previousClosing,   // opening
+                            closing,          // closing
+                            ipayAmount,       // montant iPay
+                            iBankingAmount,   // montant iBanking
                             period
                         ));
+                        previousClosing = closing;  // Pour le mois suivant
                     }
                 }
             }
-            
+
             return result;
         });
     }
@@ -237,7 +249,7 @@ public class AggregationService {
         return history.stream()
             .filter(point -> point.getRawDate().toLocalDate().equals(date.toLocalDate()))
             .findFirst()
-            .map(BalanceHistoryPoint::getGlobalBalance)
+            .map(point -> point.getClosing())  // On utilise closing au lieu de globalBalance
             .orElse(0.0);
     }
 
@@ -247,7 +259,7 @@ public class AggregationService {
                 LocalDateTime date = point.getRawDate();
                 return !date.isBefore(start) && !date.isAfter(end);
             })
-            .mapToDouble(BalanceHistoryPoint::getGlobalBalance)
+            .mapToDouble(point -> point.getClosing())  // On utilise closing au lieu de globalBalance
             .sum();
     }
 }
