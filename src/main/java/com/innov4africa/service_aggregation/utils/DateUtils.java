@@ -36,10 +36,16 @@ public class DateUtils {
         LocalDateTime weekStart = getWeekStart(date);
         LocalDateTime potentialEnd = weekStart.plusDays(6);
         
-        // Si la fin potentielle dépasse la fin du mois ou la date courante
-        if (potentialEnd.getMonth() != date.getMonth() || potentialEnd.isAfter(date)) {
+        // Si la fin potentielle dépasse la fin du mois
+        if (potentialEnd.getMonth() != date.getMonth()) {
+            return date.with(TemporalAdjusters.lastDayOfMonth());
+        }
+        
+        // Si la fin potentielle dépasse la date courante
+        if (potentialEnd.isAfter(date)) {
             return date;
         }
+        
         return potentialEnd;
     }
 
@@ -57,13 +63,14 @@ public class DateUtils {
         LocalDateTime firstDay = date.withDayOfMonth(1);
         int totalWeeks = getWeekCountInMonth(date);
         
-        for (int weekNum = 0; weekNum < totalWeeks; weekNum++) {
-            LocalDateTime weekStart = firstDay.plusDays(weekNum * 7);
+        for (int weekNum = 1; weekNum <= totalWeeks; weekNum++) {
+            // Calcul du début et de la fin de chaque semaine
+            LocalDateTime weekStart = firstDay.plusDays((weekNum - 1) * 7);
             LocalDateTime weekEnd = weekStart.plusDays(6);
             
             // Si c'est le dernier jour du mois
-            if (weekEnd.getMonth() != date.getMonth()) {
-                weekEnd = date.with(TemporalAdjusters.lastDayOfMonth());
+            if (weekEnd.getMonth() != weekStart.getMonth()) {
+                weekEnd = weekStart.with(TemporalAdjusters.lastDayOfMonth());
             }
             
             // Si on dépasse la date courante
@@ -93,7 +100,7 @@ public class DateUtils {
             if (month == currentMonth) {
                 monthEnd = date; // Pour le mois courant, utiliser la date courante
             } else {
-                monthEnd = monthStart.plusMonths(1).minusDays(1); // Dernier jour du mois
+                monthEnd = monthStart.with(TemporalAdjusters.lastDayOfMonth()); // Dernier jour du mois
             }
             
             months.add(new LocalDateTime[]{monthStart, monthEnd});

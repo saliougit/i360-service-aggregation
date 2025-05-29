@@ -142,14 +142,20 @@ public class DashboardController {
             "success",
             "Historique récupéré avec succès",
             balancePoints,
-            List.of(new ServiceStatus("service", true, "OK"))
+            List.of(
+                new ServiceStatus("i-pay", true, "Historique récupéré"),
+                new ServiceStatus("i-banking", true, "Historique récupéré")
+            )
         ))
         .map(ResponseEntity::ok)
         .onErrorResume(e -> {
             logger.error("Erreur lors de la récupération de l'historique des soldes", e);
             return Mono.just(ResponseEntity.internalServerError()
                 .body(new BalanceHistoryResponse("error", "Erreur technique", null,
-                    List.of(new ServiceStatus("service", false, "Service temporairement indisponible")))));
+                    List.of(
+                        new ServiceStatus("i-pay", false, "Service temporairement indisponible"),
+                        new ServiceStatus("i-banking", false, "Service temporairement indisponible")
+                    ))));
         });
     }
 
