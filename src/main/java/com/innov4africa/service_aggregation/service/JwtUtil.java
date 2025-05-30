@@ -84,6 +84,8 @@ public class JwtUtil {
 
     
     private String createToken(Map<String, Object> claims, String subject) {
+        // Add email as both subject and claim for backward compatibility
+        claims.put("email", subject);
         return Jwts.builder()
                 .claims(claims)
                 .subject(subject)
@@ -207,6 +209,12 @@ public String generateIpayTokenWithAccount(String username, String ipayToken, St
     }
 
     public String extractEmail(String token) {
+        // First try to get from subject (primary way)
+        String email = extractUsername(token);
+        if (email != null) {
+            return email;
+        }
+        // Fall back to email claim for backward compatibility
         return extractClaim(token, claims -> claims.get("email", String.class));
     }
 

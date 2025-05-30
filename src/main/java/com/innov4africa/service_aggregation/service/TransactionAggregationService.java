@@ -1,14 +1,23 @@
 package com.innov4africa.service_aggregation.service;
 
+import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathFactory;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.w3c.dom.Document;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
 
 import com.innov4africa.service_aggregation.model.Transaction;
 
@@ -106,8 +115,47 @@ public class TransactionAggregationService {
 
     private List<Transaction> parseIPayTransactions(String xmlResponse) {
         List<Transaction> transactions = new ArrayList<>();
-        // Parsing logic moved to controller for now
-        // TODO: Move XML parsing here
+        try {
+            Document doc = DocumentBuilderFactory.newInstance()
+                    .newDocumentBuilder()
+                    .parse(new InputSource(new StringReader(xmlResponse)));
+            
+            XPath xpath = XPathFactory.newInstance().newXPath();
+            String error = xpath.evaluate("//return/error", doc);
+
+            if ("0".equals(error)) {
+                NodeList operationNodes = (NodeList) xpath.evaluate("//return/operations", doc, XPathConstants.NODESET);
+                
+                for (int i = 0; i < operationNodes.getLength(); i++) {
+                    try {
+                        String date = xpath.evaluate("date", operationNodes.item(i));
+                        String montant = xpath.evaluate("montant", operationNodes.item(i));
+                        String typeOperation = xpath.evaluate("typeOperation", operationNodes.item(i));
+                        String typeTransaction = xpath.evaluate("typeTransaction", operationNodes.item(i));
+                        String idTransaction = xpath.evaluate("idTransaction", operationNodes.item(i));
+                        String soldeCompte = xpath.evaluate("soldeCompte", operationNodes.item(i));
+
+                        Transaction transaction = new Transaction(
+                            date,
+                            montant,
+                            typeOperation,
+                            typeTransaction,
+                            idTransaction,
+                            soldeCompte,
+                            "ipay"
+                        );
+                        transactions.add(transaction);
+                    } catch (Exception e) {
+                        logger.warn("Erreur lors du parsing d'une transaction: {}", e.getMessage());
+                    }
+                }
+            } else {
+                String message = xpath.evaluate("//return/message", doc);
+                logger.warn("Erreur iPay: {}", message);
+            }
+        } catch (Exception e) {
+            logger.error("Erreur lors du parsing XML des transactions: {}", e.getMessage());
+        }
         return transactions;
     }
     
