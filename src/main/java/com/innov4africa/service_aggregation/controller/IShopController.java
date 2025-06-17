@@ -2,11 +2,11 @@ package com.innov4africa.service_aggregation.controller;
 
 import java.util.Map;
 
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -14,12 +14,21 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
-import org.springframework.web.bind.annotation.GetMapping;
 
-import com.innov4africa.service_aggregation.model.*;
+import com.innov4africa.service_aggregation.model.IShopAddressRequest;
+import com.innov4africa.service_aggregation.model.IShopAddressResponse;
+import com.innov4africa.service_aggregation.model.IShopCategoriesResponse;
+import com.innov4africa.service_aggregation.model.IShopDomainesResponse;
+import com.innov4africa.service_aggregation.model.IShopLoginRequest;
+import com.innov4africa.service_aggregation.model.IShopLoginResponse;
+import com.innov4africa.service_aggregation.model.IShopNotificationRequest;
+import com.innov4africa.service_aggregation.model.IShopNotificationResponse;
+import com.innov4africa.service_aggregation.model.IShopOrderResponse;
+import com.innov4africa.service_aggregation.model.IShopProductRequest;
+import com.innov4africa.service_aggregation.model.IShopProductResponse;
+import com.innov4africa.service_aggregation.service.IShopCategoryService;
 import com.innov4africa.service_aggregation.service.IShopService;
 import com.innov4africa.service_aggregation.service.JwtUtil;
-import com.innov4africa.service_aggregation.service.IShopCategoryService;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -102,7 +111,7 @@ public class IShopController {
         Integer ishopUserId = null;
         try {
             var ishopInfo = jwtUtil.extractIShopInfo(token);
-            ishopUserId = 725; // Valeur de test pour le développement
+            ishopUserId = 16081; // Valeur de test pour le développement
         } catch (Exception e) {
             IShopAddressResponse error = new IShopAddressResponse();
             error.setStatus("error");
@@ -148,7 +157,7 @@ public class IShopController {
         Integer ishopUserId;
         try {
             var ishopInfo = jwtUtil.extractIShopInfo(token);
-            ishopUserId = 725; // Valeur de test pour le développement
+            ishopUserId = 16081; // Valeur de test pour le développement
         } catch (Exception e) {
             return Mono.just(buildErrorResponse(500, "Erreur lors de l'extraction des informations utilisateur"));
         }
@@ -203,7 +212,7 @@ public class IShopController {
         Integer ishopUserId;
         try {
             var ishopInfo = jwtUtil.extractIShopInfo(token);
-            ishopUserId = 725; // Valeur de test pour le développement
+            ishopUserId = 16081; // Valeur de test pour le développement
         } catch (Exception e) {
             return Mono.just(buildErrorResponseOrder(500, "Erreur lors de l'extraction des informations utilisateur"));
         }
@@ -267,7 +276,7 @@ public class IShopController {
         Integer userId;
         try {
             var ishopInfo = jwtUtil.extractIShopInfo(token);
-            userId = 725; // Valeur de test pour le développement
+            userId = 16081; // Valeur de test pour le développement
         } catch (Exception e) {
             IShopProductResponse error = new IShopProductResponse();
             error.setStatus("error");
@@ -311,7 +320,7 @@ public class IShopController {
         // Extraction des infos utilisateur
         Integer userId;
         // userId = ishopInfo.getUser_id()
-        userId = 725; // Valeur de test pour le développement
+        userId = 16081; // Valeur de test pour le développement
         try {
             var ishopInfo = jwtUtil.extractIShopInfo(token);
             if (ishopInfo == null || userId == null) {
@@ -354,7 +363,7 @@ public class IShopController {
 
         // Extraction des infos utilisateur
         Integer userId;
-        userId = 725; // Valeur de test pour le développement
+        userId = 16081; // Valeur de test pour le développement
         try {
             var ishopInfo = jwtUtil.extractIShopInfo(token);
             if (ishopInfo == null || userId == null) {
@@ -410,7 +419,7 @@ public class IShopController {
         // Extraction des infos utilisateur
         Integer userId;
         // userId = ishopInfo.getUser_id();
-        userId = 725; // Valeur de test pour le développement
+        userId = 16081; // Valeur de test pour le développement
         try {
             var ishopInfo = jwtUtil.extractIShopInfo(token);
             if (ishopInfo == null || userId == null) {
