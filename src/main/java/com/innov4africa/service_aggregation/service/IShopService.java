@@ -1,9 +1,13 @@
 package com.innov4africa.service_aggregation.service;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -14,14 +18,13 @@ import com.innov4africa.service_aggregation.model.IShopLoginRequest;
 import com.innov4africa.service_aggregation.model.IShopLoginResponse;
 import com.innov4africa.service_aggregation.model.IShopNotificationRequest;
 import com.innov4africa.service_aggregation.model.IShopNotificationResponse;
-import com.innov4africa.service_aggregation.model.IShopOrderResponse;
 import com.innov4africa.service_aggregation.model.IShopOrder;
+import com.innov4africa.service_aggregation.model.IShopOrderResponse;
+import com.innov4africa.service_aggregation.model.IShopProduct;
 import com.innov4africa.service_aggregation.model.IShopProductRequest;
 import com.innov4africa.service_aggregation.model.IShopProductResponse;
-import com.innov4africa.service_aggregation.model.IShopProduct;
 import com.innov4africa.service_aggregation.model.PaginationMetadata;
-import java.util.List;
-import java.util.stream.Collectors;
+
 import reactor.core.publisher.Mono;
 
 @Service
@@ -170,12 +173,26 @@ public class IShopService {
             response.setStatus("success");
             response.setCode(200);
             
-            // Calculer la sous-liste pour la page demandée
+            // Vérifier si l'offset est valide
             int start = request.getNext_offset();
+            if (start >= products.size()) {
+                response.setStatus("success");
+                response.setCode(200);
+                response.setResult(new ArrayList<>());
+                response.setPagination(new PaginationMetadata(
+                    request.getNext_offset(),
+                    DEFAULT_LIMIT,
+                    products.size(),
+                    null
+                ));
+                return Mono.just(response);
+            }
+            
+            // Calculer la sous-liste pour la page demandée
             int end = Math.min(start + DEFAULT_LIMIT, products.size());
             response.setResult(products.subList(start, end));
             
-            // Configurer la pagination avec le total exact du cache
+            // Configurer la pagination
             Integer nextPage = end < products.size() ? end : null;
             response.setPagination(new PaginationMetadata(
                 request.getNext_offset(),
