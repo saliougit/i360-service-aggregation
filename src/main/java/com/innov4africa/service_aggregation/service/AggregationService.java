@@ -82,7 +82,7 @@ public class AggregationService {
             IBankingBalanceResponse iBankingResponse = tuple.getT2();
             String montantIPay = "0.00";
             String montantIBanking = "0.00";
-
+/////
             try {
                 // Parser la réponse XML iPay
                 Document doc = DocumentBuilderFactory.newInstance()
