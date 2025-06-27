@@ -1,32 +1,23 @@
 package com.innov4africa.service_aggregation.service;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
-
-import com.innov4africa.service_aggregation.model.BalanceHistoryPoint;
-import com.innov4africa.service_aggregation.model.IBankingBalanceResponse;
-import com.innov4africa.service_aggregation.model.IBankingTokenResponse;
-import com.innov4africa.service_aggregation.model.Period;
-import com.innov4africa.service_aggregation.model.ServiceStatus;
-import com.innov4africa.service_aggregation.utils.DateUtils;
-
 import reactor.core.publisher.Mono;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import com.innov4africa.service_aggregation.model.IBankingTokenResponse;
+import com.innov4africa.service_aggregation.model.IBankingBalanceResponse;
+import com.innov4africa.service_aggregation.model.ServiceStatus;
+import com.innov4africa.service_aggregation.model.GlobalBalanceResponse;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Collections;
+import java.util.List;
 
 @Service
 public class IBankingService {
@@ -204,83 +195,4 @@ public class IBankingService {
             List.of(new ServiceStatus("i-banking", true, "Solde récupéré"))
         ));
     }
-    
-        /**
-     * Génère un historique simulé des soldes pour iBanking.
-     * Les valeurs sont déterministes pour un même email.
-     */
-    public Mono<List<BalanceHistoryPoint>> getBalanceHistory(String userEmail, LocalDateTime startDate, LocalDateTime endDate, Period period) {
-        logger.info("Récupération de l'historique iBanking pour l'utilisateur: {}, période: {}", userEmail, period);
-
-        List<BalanceHistoryPoint> history = new ArrayList<>();
-        int hashCode = Math.abs(userEmail.hashCode());
-        Random random = new Random(hashCode); // Génération déterministe basée sur l'email
-        double previousClosing = 1000 + (random.nextDouble() * 2000); // Solde initial entre 1000 et 3000
-
-        switch (period) {
-            case WEEK -> {
-                // Génère un point par jour
-                LocalDateTime weekStart = DateUtils.getWeekStart(endDate);
-                List<LocalDate> daysInWeek = DateUtils.getDaysInPeriod(weekStart, endDate);
-
-                for (LocalDate day : daysInWeek) {
-                    double dailyVariation = 500 + (random.nextDouble() * 1500); // Variation quotidienne entre 500 et 2000
-                    double currentClosing = previousClosing + (random.nextBoolean() ? dailyVariation : -dailyVariation);
-                    
-                    history.add(new BalanceHistoryPoint(
-                        day.atStartOfDay(),
-                        previousClosing,    // opening
-                        currentClosing,     // closing
-                        0.0,               // ipayAmount (0 car c'est iBanking)
-                        currentClosing,     // ibankingAmount (même que closing car c'est iBanking)
-                        period
-                    ));
-                    previousClosing = currentClosing;
-                }
-            }
-            case MONTH -> {
-                // Génère un point par semaine
-                List<LocalDateTime[]> weekRanges = DateUtils.getWeekRangesForMonth(endDate);
-
-                for (LocalDateTime[] weekRange : weekRanges) {
-                    // Simuler une variation hebdomadaire
-                    double weeklyVariation = (500 + (random.nextDouble() * 1500)) * 7;
-                    double currentClosing = previousClosing + (random.nextBoolean() ? weeklyVariation : -weeklyVariation);
-                    
-                    history.add(new BalanceHistoryPoint(
-                        weekRange[0],
-                        previousClosing,    // opening
-                        currentClosing,     // closing
-                        0.0,               // ipayAmount (0 car c'est iBanking)
-                        currentClosing,     // ibankingAmount (même que closing car c'est iBanking)
-                        period
-                    ));
-                    previousClosing = currentClosing;
-                }
-            }
-            case YEAR -> {
-                // Génère un point par mois
-                List<LocalDateTime[]> monthRanges = DateUtils.getMonthRangesForYear(endDate);
-
-                for (LocalDateTime[] monthRange : monthRanges) {
-                    // Simuler une variation mensuelle
-                    double monthlyVariation = (500 + (random.nextDouble() * 1500)) * 30;
-                    double currentClosing = previousClosing + (random.nextBoolean() ? monthlyVariation : -monthlyVariation);
-                    
-                    history.add(new BalanceHistoryPoint(
-                        monthRange[0],
-                        previousClosing,    // opening
-                        currentClosing,     // closing
-                        0.0,               // ipayAmount (0 car c'est iBanking)
-                        currentClosing,     // ibankingAmount (même que closing car c'est iBanking)
-                        period
-                    ));
-                    previousClosing = currentClosing;
-                }
-            }
-        }
-
-        return Mono.just(history);
-    }
-
 }

@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -26,17 +27,19 @@ import com.innov4africa.service_aggregation.model.IShopNotificationResponse;
 import com.innov4africa.service_aggregation.model.IShopOrderResponse;
 import com.innov4africa.service_aggregation.model.IShopProductRequest;
 import com.innov4africa.service_aggregation.model.IShopProductResponse;
+import com.innov4africa.service_aggregation.model.OrderDetail;
 import com.innov4africa.service_aggregation.service.IShopCategoryService;
 import com.innov4africa.service_aggregation.service.IShopService;
 import com.innov4africa.service_aggregation.service.JwtUtil;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import reactor.core.publisher.Mono;
 
 @RestController
-@RequestMapping("/ishop")
-@Tag(name = "IShop", description = "API pour la gestion des services i-shop")
+@RequestMapping("/shop")
+@Tag(name = "Shop", description = "API pour la gestion des commandes et des produits")
 public class IShopController {
     
     private static final Logger logger = LoggerFactory.getLogger(IShopController.class);
@@ -463,6 +466,75 @@ public class IShopController {
             logger.error("Erreur lors de la création de la réponse d'erreur", e);
             return ResponseEntity.status(500).body(null);
         }
+    }
+
+    @Operation(summary = "Récupère les détails d'une commande", 
+              description = "Retourne les détails complets d'une commande incluant les informations client, l'adresse de livraison et les produits")
+    @GetMapping("/orders/{orderId}/details")
+    public Mono<ResponseEntity<OrderDetail>> getOrderDetails(
+            @Parameter(description = "ID de la commande") @PathVariable String orderId,
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        
+        // Vérification du token
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            logger.error("Token manquant ou ne commence pas par 'Bearer'");
+            OrderDetail errorResponse = new OrderDetail();
+            errorResponse.setStatus("error");
+            errorResponse.setMessage("Token d'authentification manquant ou invalide");
+            errorResponse.setCode(401);
+            return Mono.just(ResponseEntity.status(401).body(errorResponse));
+        }
+        
+        String token = authHeader.substring(7);
+        if (!jwtUtil.validateToken(token)) {
+            logger.error("Token invalide après validation");
+            OrderDetail errorResponse = new OrderDetail();
+            errorResponse.setStatus("error");
+            errorResponse.setMessage("Token invalide ou expiré");
+            errorResponse.setCode(401);
+            return Mono.just(ResponseEntity.status(401).body(errorResponse));
+        }
+
+        // Extraction des infos utilisateur
+        String userId;
+        try {
+            var ishopInfo = jwtUtil.extractIShopInfo(token);
+            // En développement, on utilise une valeur de test
+            userId = "16081"; // Valeur de test pour le développement
+            
+            // En production, on utilisera :
+            // userId = String.valueOf(ishopInfo.getUser_id());
+            
+        } catch (Exception e) {
+            logger.error("Erreur lors de l'extraction des informations utilisateur", e);
+            OrderDetail errorResponse = new OrderDetail();
+            errorResponse.setStatus("error");
+            errorResponse.setMessage("Erreur lors de l'extraction des informations utilisateur");
+            errorResponse.setCode(500);
+            return Mono.just(ResponseEntity.status(500).body(errorResponse));
+        }
+
+        return iShopService.getOrderDetails(userId, orderId)
+                .map(ResponseEntity::ok)
+                .defaultIfEmpty(ResponseEntity.notFound().build())
+                .onErrorResume(e -> {
+                    logger.error("Erreur lors de la récupération des détails de la commande", e);
+                    OrderDetail errorResponse = new OrderDetail();
+                    errorResponse.setStatus("error");
+                    errorResponse.setCode(500);
+                    
+                    if (e instanceof WebClientResponseException) {
+                        WebClientResponseException wcException = (WebClientResponseException) e;
+                        if (wcException.getStatusCode().value() == 404) {
+                            errorResponse.setMessage("Commande non trouvée");
+                            errorResponse.setCode(404);
+                            return Mono.just(ResponseEntity.status(404).body(errorResponse));
+                        }
+                    }
+                    
+                    errorResponse.setMessage("Une erreur est survenue lors de la récupération des détails de la commande");
+                    return Mono.just(ResponseEntity.status(500).body(errorResponse));
+                });
     }
 }
 

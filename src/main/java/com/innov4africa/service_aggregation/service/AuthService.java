@@ -41,16 +41,9 @@ public class AuthService {
     private TokenRepository tokenRepository;
     
     @Autowired
-    private UserSessionRepository userSessionRepository;
-
-    @Autowired
-    private TokenNotificationService tokenNotificationService;
-
-    public Mono<AuthResponse> authenticate(AuthRequest request) {
+    private UserSessionRepository userSessionRepository;        public Mono<AuthResponse> authenticate(AuthRequest request) {
         String email = request.getEmail();
         String password = request.getPassword();
-
-        
 
         // Préparer la requête iShop qui sera utilisée dans les deux cas
         Mono<com.innov4africa.service_aggregation.model.IShopLoginResponse> ishopMono = 
@@ -255,7 +248,7 @@ public class AuthService {
                                          com.innov4africa.service_aggregation.model.IShopLoginResponse ishopResponse, 
                                          List<ServiceStatus> services) {
     
-    // Récupérer l'accountId depuis iPay
+    // Récupérer l'accountId depuis iPay (comme dans l'ancienne version)
     return ipayService.getAllListAccount(ipayToken, telephone)
         .flatMap(xmlResponse -> {
             String accountIdIPay = ipayService.extractAccountIdFromResponse(xmlResponse);
@@ -289,20 +282,14 @@ public class AuthService {
                 globalMessage = "Authentification réussie";
             }
             
-            //debug
-
-            logger.debug("Notification     {}: {}", email, jwtToken);
-            
-            // Notify Gateway about the new token
-            return tokenNotificationService.notifyNewToken(email, jwtToken)
-                .thenReturn(new AuthResponse(
-                    "successssss",
-                    globalMessage,
-                    jwtToken,
-                    services,
-                    ishopInfo,
-                    isSeller
-                ));
+            return Mono.just(new AuthResponse(
+                "success",
+                globalMessage,
+                jwtToken,
+                services,
+                ishopInfo,
+                isSeller
+            ));
         })
         .onErrorResume(e -> {
             logger.error("Erreur récupération accountId", e);
@@ -311,16 +298,14 @@ public class AuthService {
                 jwtUtil.generateTokenWithIShopInfo(email, ipayToken, telephone, userId, IShopInfo.fromLoginResponse(ishopResponse)) :
                 jwtUtil.generateIpayToken(email, ipayToken, telephone, userId);
             
-            // Notify Gateway about the new token even in case of error
-            return tokenNotificationService.notifyNewToken(email, jwtToken)
-                .thenReturn(new AuthResponse(
-                    "success",
-                    "Authentification réussie (sans accountId)",
-                    jwtToken,
-                    services,
-                    isSeller ? IShopInfo.fromLoginResponse(ishopResponse) : null,
-                    isSeller
-                ));
+            return Mono.just(new AuthResponse(
+                "success",
+                "Authentification réussie (sans accountId)",
+                jwtToken,
+                services,
+                isSeller ? IShopInfo.fromLoginResponse(ishopResponse) : null,
+                isSeller
+            ));
         });
     }
 

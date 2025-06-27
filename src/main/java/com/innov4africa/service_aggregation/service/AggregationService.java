@@ -1,8 +1,6 @@
 package com.innov4africa.service_aggregation.service;
 
 import java.io.StringReader;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -19,12 +17,9 @@ import org.w3c.dom.Document;
 import org.xml.sax.InputSource;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.innov4africa.service_aggregation.model.BalanceHistoryPoint;
 import com.innov4africa.service_aggregation.model.GlobalBalanceResponse;
 import com.innov4africa.service_aggregation.model.IBankingBalanceResponse;
-import com.innov4africa.service_aggregation.model.Period;
 import com.innov4africa.service_aggregation.model.ServiceStatus;
-import com.innov4africa.service_aggregation.utils.DateUtils;
 
 import reactor.core.publisher.Mono;
 
@@ -46,7 +41,6 @@ public class AggregationService {
     @Autowired
     private InMemoryBalanceCache memoryCache;
 
-    
     /**
      * Agrège les soldes de iPay et iBanking pour un utilisateur
      */
@@ -82,7 +76,7 @@ public class AggregationService {
             IBankingBalanceResponse iBankingResponse = tuple.getT2();
             String montantIPay = "0.00";
             String montantIBanking = "0.00";
-/////
+
             try {
                 // Parser la réponse XML iPay
                 Document doc = DocumentBuilderFactory.newInstance()
@@ -159,107 +153,5 @@ public class AggregationService {
                        new ServiceStatus("i-banking", false, "Service en cours d'implémentation"))
             ));
         });
-    }
-
-    /**
-     * Récupère l'historique des soldes pour une période donnée
-     */
-    public Mono<List<BalanceHistoryPoint>> getBalanceHistory(
-            String telephone, String email, String ipayToken, String accountId,
-            LocalDateTime startDate, LocalDateTime endDate, Period period) {
-        
-        logger.info("Récupération de l'historique - période: {}, du {} au {}", period, startDate, endDate);
-        
-        return Mono.zip(
-            ipayService.getBalanceHistory(ipayToken, accountId, startDate, endDate, period),
-            iBankingService.getBalanceHistory(email, startDate, endDate, period)
-        ).map(tuple -> {
-            List<BalanceHistoryPoint> ipayHistory = tuple.getT1();
-            List<BalanceHistoryPoint> iBankingHistory = tuple.getT2();
-            List<BalanceHistoryPoint> result = new ArrayList<>();
-
-            switch (period) {
-                case WEEK -> {
-                    List<LocalDate> daysInWeek = DateUtils.getDaysInPeriod(startDate, endDate);
-                    double previousClosing = 0.0;  // Solde initial
-                    for (LocalDate day : daysInWeek) {
-                        LocalDateTime dayStart = day.atStartOfDay();
-                        double ipayAmount = getAmountForDate(ipayHistory, dayStart);
-                        double iBankingAmount = getAmountForDate(iBankingHistory, dayStart);
-                        double closing = ipayAmount + iBankingAmount;
-                        
-                        result.add(new BalanceHistoryPoint(
-                            dayStart,
-                            previousClosing,   // opening
-                            closing,          // closing
-                            ipayAmount,       // montant iPay
-                            iBankingAmount,   // montant iBanking
-                            period
-                        ));
-                        previousClosing = closing;  // Pour le jour suivant
-                    }
-                }
-                case MONTH -> {
-                    List<LocalDateTime[]> weekRanges = DateUtils.getWeekRangesForMonth(endDate);
-                    double previousClosing = 0.0;   // Solde initial
-                    for (LocalDateTime[] weekRange : weekRanges) {
-                        LocalDateTime weekStart = weekRange[0];
-                        double ipayAmount = getAmountForDate(ipayHistory, weekStart);
-                        double iBankingAmount = getAmountForDate(iBankingHistory, weekStart);
-                        double closing = ipayAmount + iBankingAmount;
-                        
-                        result.add(new BalanceHistoryPoint(
-                            weekStart,
-                            previousClosing,   // opening
-                            closing,          // closing
-                            ipayAmount,       // montant iPay
-                            iBankingAmount,   // montant iBanking
-                            period
-                        ));
-                        previousClosing = closing;  // Pour la semaine suivante
-                    }
-                }
-                case YEAR -> {
-                    List<LocalDateTime[]> monthRanges = DateUtils.getMonthRangesForYear(endDate);
-                    double previousClosing = 0.0;   // Solde initial
-                    for (LocalDateTime[] monthRange : monthRanges) {
-                        LocalDateTime monthStart = monthRange[0];
-                        double ipayAmount = getAmountForDate(ipayHistory, monthStart);
-                        double iBankingAmount = getAmountForDate(iBankingHistory, monthStart);
-                        double closing = ipayAmount + iBankingAmount;
-                        
-                        result.add(new BalanceHistoryPoint(
-                            monthStart,
-                            previousClosing,   // opening
-                            closing,          // closing
-                            ipayAmount,       // montant iPay
-                            iBankingAmount,   // montant iBanking
-                            period
-                        ));
-                        previousClosing = closing;  // Pour le mois suivant
-                    }
-                }
-            }
-
-            return result;
-        });
-    }
-
-    private double getAmountForDate(List<BalanceHistoryPoint> history, LocalDateTime date) {
-        return history.stream()
-            .filter(point -> point.getRawDate().toLocalDate().equals(date.toLocalDate()))
-            .findFirst()
-            .map(point -> point.getClosing())  // On utilise closing au lieu de globalBalance
-            .orElse(0.0);
-    }
-
-    private double getAmountForPeriod(List<BalanceHistoryPoint> history, LocalDateTime start, LocalDateTime end) {
-        return history.stream()
-            .filter(point -> {
-                LocalDateTime date = point.getRawDate();
-                return !date.isBefore(start) && !date.isAfter(end);
-            })
-            .mapToDouble(point -> point.getClosing())  // On utilise closing au lieu de globalBalance
-            .sum();
     }
 }
